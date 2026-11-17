@@ -16,6 +16,16 @@ def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(create_app())
 
 
+def test_publish_empty_draft_returns_clear_conflict(api_client: TestClient) -> None:
+    response = api_client.post(
+        "/changesets/default/publish",
+        json={"message": "empty", "author": "user:host"},
+        headers={"Idempotency-Key": "empty-1"},
+    )
+    assert response.status_code == 409
+    assert response.json() == {"error": "conflict", "detail": "нет изменений для коммита"}
+
+
 def test_publish_rebase_required_on_stale_head(api_client: TestClient) -> None:
     space = "default"
     api_client.put(

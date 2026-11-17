@@ -75,7 +75,7 @@ class IdempotencyStore:
                 status_code, outcome = handler(txn)
             except ValueError as exc:
                 if "нет изменений" in str(exc):
-                    raise IdempotencyRaceError from exc
+                    raise ConflictError("нет изменений для коммита") from exc
                 raise
 
             stored = {
