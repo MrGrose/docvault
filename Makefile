@@ -1,4 +1,4 @@
-.PHONY: dev test lint test-fault demo-1 demo-agent demo-hitol
+.PHONY: dev test lint test-fault demo-1 demo-agent demo-hitol bench
 
 dev:
 	uv run uvicorn main:app --app-dir src --reload --port 8080
@@ -22,3 +22,6 @@ demo-hitol:
 	
 test-fault:
 	RUN_FAULT_TESTS=1 uv run pytest tests/fault/ -v
+
+bench:
+	uv run python scripts/bench_cdc.py
