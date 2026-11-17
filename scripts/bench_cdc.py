@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-"""Benchmark CDC (buzhash) against fixed-size chunking on three edit patterns.
-
-Both algorithms are compared by storage ratio: total bytes of all versions
-divided by bytes actually stored after deduplication. Chunk-count ratios are
-not comparable, because CDC and fixed chunking produce a different number of
-chunks of different sizes.
-"""
+# Compares buzhash and fixed-size chunking by storage ratio: all version bytes
+# divided by bytes stored after deduplication. Chunk counts are not comparable
+# because the algorithms produce different numbers of different-sized chunks.
 
 import hashlib
 import random
