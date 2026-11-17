@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DocVault HITL</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <h1>HITL review</h1>
+      <p class="lede">Проверка claims и публикация после вердикта.</p>
+    </header>
+
+    <section class="card" aria-labelledby="run-heading">
+      <h2 id="run-heading">Run</h2>
+      <div class="run-row">
+        <label for="runId">Run ID</label>
+        <input id="runId" type="text" autocomplete="off" spellcheck="false" placeholder="uuid run…" />
+        <button type="button" id="loadBtn">Load</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="status-heading">
+      <h2 id="status-heading">Status</h2>
+      <pre id="status"></pre>
+    </section>
+
+    <section class="card" aria-labelledby="claims-heading">
+      <h2 id="claims-heading">Claims</h2>
+      <div id="claims"></div>
+    </section>
+
+    <section class="card" aria-labelledby="verdict-heading">
+      <h2 id="verdict-heading">Verdict</h2>
+      <p class="actions">
+        <button type="button" id="acceptBtn">Accept + publish</button>
+        <button type="button" id="rejectBtn">Reject</button>
+      </p>
+      <h2>Result</h2>
+      <pre id="result"></pre>
+    </section>
+  </main>
+  <script src="app.js" defer></script>
+</body>
+</html>
