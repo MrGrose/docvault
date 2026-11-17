@@ -44,7 +44,7 @@ flowchart LR
 | **CLI `dv`** | Хост | `init`, `write`, `commit`, `publish` |
 | **FastAPI** | Хост | REST: changesets, docs, runs, audit; idempotency middleware |
 | **UI** | Хост | Pending runs на `/ui` |
-| **Agent pipeline** | Хост | extract -> draft (sandbox) -> validate -> claims |
+| **Agent pipeline** | Хост | draft (sandbox) -> validate -> claims |
 | **Broker** | Хост | UDS: проверка capability token, `write_doc` |
 | **Sandbox** | Контейнер | `network none`, лимит pids, UDS к broker |
 | **SDK client** | Контейнер | Вызовы broker из кода агента |
@@ -57,14 +57,13 @@ flowchart LR
 |-----|----------|
 | 1 | Инициализация репозитория и changeset (CLI или API) |
 | 2 | Исходные файлы в changeset (`write` / PUT doc) |
-| 3 | Extract - чтение путей и содержимого из cs |
-| 4 | Draft - Python агента в Docker sandbox |
-| 5 | SDK -> broker -> `write_doc` (после проверки token) |
-| 6 | Validate - ошибки sandbox |
-| 7 | Claims с evidence и `source_ref` |
-| 8 | Run в ожидании ревью |
-| 9 | Verdict в UI или `POST /runs/{id}/verdicts` |
-| 10 | Accept: проверка подстроки цитаты; publish с CAS на `head` |
+| 3 | Draft - Python агента в Docker sandbox |
+| 4 | SDK -> broker -> `write_doc` (после проверки token) |
+| 5 | Validate - ошибки sandbox |
+| 6 | Claims с evidence и `source_ref` |
+| 7 | Run в ожидании ревью |
+| 8 | Verdict в UI или `POST /runs/{id}/verdicts` |
+| 9 | Accept: проверка подстроки цитаты; publish с CAS на `head` |
 
 ```mermaid
 sequenceDiagram
@@ -78,7 +77,6 @@ sequenceDiagram
 
   Op->>API: создать changeset, записать docs
   Op->>Pipe: запуск пайплайна
-  Pipe->>Pipe: extract
   Pipe->>Sbx: выполнить draft-код
   Sbx->>Brk: write_doc (capability token)
   Brk->>Repo: запись в changeset
