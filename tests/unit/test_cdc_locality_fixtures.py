@@ -6,8 +6,9 @@ from core.cdc.buzhash import chunk_bytes
 random.seed(7)
 FIXTURE = bytes(random.randrange(256) for _ in range(96_000))
 INSERT_POS = 4_300
-# Зафиксировано прогоном для FIXTURE+INSERT_POS; не универсальная гарантия Buzhash.
-EXPECTED_CHANGED_CHUNK_REFS = 13
+# Вставка одного байта сдвигает границы только в окрестности правки,
+# поэтому меняться должен один чанк (допускаем два на границе min/max).
+MAX_CHANGED_CHUNKS = 2
 
 
 def _chunk_digests(data: bytes) -> list[str]:
@@ -21,4 +22,4 @@ def test_one_byte_insert_locality_regression() -> None:
     changed = sum(1 for a, b in zip(before, after, strict=False) if a != b)
     if len(before) != len(after):
         changed += abs(len(before) - len(after))
-    assert changed == EXPECTED_CHANGED_CHUNK_REFS
+    assert changed <= MAX_CHANGED_CHUNKS
