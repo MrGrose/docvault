@@ -60,3 +60,9 @@ def test_token_carries_run_id(monkeypatch: pytest.MonkeyPatch) -> None:
         run_id="run-9",
     )
     assert verify_token(token).run_id == "run-9"
+
+
+def test_malformed_tokens_raise_authz_error() -> None:
+    for token in ("", "a", "a.b", "ё.ё", "%%% .sig"):
+        with pytest.raises(AuthzError):
+            verify_token(token)

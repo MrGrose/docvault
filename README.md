@@ -72,7 +72,7 @@ make demo-hitol
 
 | Проверка | Результат |
 |----------|-----------|
-| `uv run pytest` | 182 теста проходят, 1 скипается (fault-тест требует Docker) |
+| `uv run pytest` | 183 теста проходят, 1 скипается (fault-тест требует Docker) |
 | `uv run pytest --cov=src` | покрытие 91% по `src` |
 | `uv run ruff check .` и `uv run mypy src` | без замечаний, mypy в strict-режиме |
 | Локальность CDC | вставка одного байта в файл 96 КБ меняет 1 чанк из 27 |

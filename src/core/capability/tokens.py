@@ -1,4 +1,5 @@
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -77,15 +78,18 @@ def verify_token(token: str) -> CapabilityClaims:
     secret = _secret()
     try:
         payload_b64, sig = token.rsplit(".", 1)
-    except ValueError as exc:
+        expected = _sign(payload_b64, secret)
+        if not hmac.compare_digest(expected, sig):
+            raise AuthzError("подпись token не совпала")
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+        data = json.loads(raw.decode("utf-8"))
+        exp = int(data["exp"])
+        space = str(data["space"])
+        prefixes = tuple(str(x) for x in data["path_prefixes"])
+        ops = tuple(str(x) for x in data["ops"])
+    except (ValueError, TypeError, KeyError, UnicodeError, binascii.Error) as exc:
         raise AuthzError("неверный формат token") from exc
-    expected = _sign(payload_b64, secret)
-    if not hmac.compare_digest(expected, sig):
-        raise AuthzError("подпись token не совпала")
-    padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-    raw = base64.urlsafe_b64decode(padded.encode("ascii"))
-    data = json.loads(raw.decode("utf-8"))
-    exp = int(data["exp"])
     if time.time() > exp:
         raise AuthzError("token истек")
     draft_raw = data.get("draft_id")
@@ -93,9 +97,9 @@ def verify_token(token: str) -> CapabilityClaims:
     run_raw = data.get("run_id")
     agent_raw = data.get("agent_id")
     return CapabilityClaims(
-        space=str(data["space"]),
-        path_prefixes=tuple(str(x) for x in data["path_prefixes"]),
-        ops=tuple(str(x) for x in data["ops"]),
+        space=space,
+        path_prefixes=prefixes,
+        ops=ops,
         exp=exp,
         draft_id=str(draft_raw) if draft_raw else None,
         jti=str(jti_raw) if jti_raw else None,
