@@ -65,13 +65,17 @@ def test_run_sets_isolation_flags(monkeypatch: pytest.MonkeyPatch) -> None:
     image, kwargs = client.containers.run_calls[0]
     assert image == "agent:latest"
     assert kwargs["command"] == ["python", "main.py"]
-    assert kwargs["environment"] == {"A": "B"}
+    assert kwargs["environment"] == {"PYTHONDONTWRITEBYTECODE": "1", "A": "B"}
     assert kwargs["network_mode"] == "none"
     assert kwargs["working_dir"] == "/work"
     assert kwargs["mem_limit"] == "256m"
     assert kwargs["nano_cpus"] == 500_000_000
     assert kwargs["user"] == "1000:1000"
     assert kwargs["security_opt"] == ["no-new-privileges:true"]
+    assert kwargs["cap_drop"] == ["ALL"]
+    assert kwargs["pids_limit"] == 64
+    assert kwargs["read_only"] is True
+    assert "/tmp" in kwargs["tmpfs"]
     assert kwargs["volumes"] == {"/host/work": {"bind": "/work", "mode": "rw"}}
     assert container.wait_timeout == 120
 
@@ -120,3 +124,7 @@ def test_kill_and_spawn_idle(monkeypatch: pytest.MonkeyPatch) -> None:
     _, kwargs = client.containers.run_calls[0]
     assert kwargs["network_mode"] == "none"
     assert kwargs["detach"] is True
+    assert kwargs["mem_limit"] == "256m"
+    assert kwargs["pids_limit"] == 64
+    assert kwargs["read_only"] is True
+    assert kwargs["user"] == "1000:1000"

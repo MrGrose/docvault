@@ -30,6 +30,9 @@ uv run python -c "from agent.pipeline import run_pipeline; open('$TASK_PY','w').
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   docker build -f "$ROOT/docker/sandbox.Dockerfile" -t docvault-sandbox:local "$ROOT" >/dev/null
   docker run --rm --network none \
+    --memory 256m --cpus 0.5 --pids-limit 64 \
+    --read-only --tmpfs /tmp:rw,size=64m \
+    --security-opt no-new-privileges --cap-drop ALL \
     -v "$DOCVAULT_BROKER_SOCKET:/run/broker.sock" \
     -v "$TASK_PY:/work/task.py:ro" \
     -v "$ROOT/src:/work/src:ro" \
@@ -38,6 +41,7 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     -e DOCVAULT_SPACE \
     -e DOCVAULT_IDEM_KEY \
     -e PYTHONPATH=/work/src \
+    -e PYTHONDONTWRITEBYTECODE=1 \
     --user 1000:1000 \
     docvault-sandbox:local python /work/task.py
 else

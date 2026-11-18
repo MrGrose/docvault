@@ -14,6 +14,10 @@ class IdempotencyRaceError(Exception):
     pass
 
 
+class StorageFullError(Exception):
+    pass
+
+
 class AuthzError(Exception):
     pass
 

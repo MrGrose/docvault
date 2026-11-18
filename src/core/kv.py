@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import TracebackType
@@ -5,9 +6,12 @@ from typing import ClassVar, TypeVar
 
 import lmdb
 
-from core.errors import ConflictError
+from core.errors import ConflictError, StorageFullError
 
 MAP_SIZE = 50 * 1024 * 1024
+
+def map_size() -> int:
+    return int(os.environ.get("DOCVAULT_MAP_SIZE", str(MAP_SIZE)))
 T = TypeVar("T")
 
 
@@ -117,13 +121,18 @@ class LmdbKv:
         if cached is not None:
             env, db = cached
             return cls(env, db)
-        env = lmdb.open(
-            str(data_dir),
-            map_size=MAP_SIZE,
-            max_dbs=1,
-            subdir=True,
-        )
-        db = env.open_db(b"kv")
+        try:
+            env = lmdb.open(
+                str(data_dir),
+                map_size=map_size(),
+                max_dbs=1,
+                subdir=True,
+            )
+            db = env.open_db(b"kv")
+        except lmdb.MapFullError as exc:
+            raise StorageFullError(
+                "LMDB map size исчерпан, увеличьте DOCVAULT_MAP_SIZE"
+            ) from exc
         cls._opened[cache_key] = (env, db)
         return cls(env, db)
 
@@ -136,8 +145,13 @@ class LmdbKv:
         return self._db
 
     def run_write(self, fn: Callable[[WriteTxn], T]) -> T:
-        with self._env.begin(db=self._db, write=True) as txn:
-            return fn(WriteTxn(txn, self._db))
+        try:
+            with self._env.begin(db=self._db, write=True) as txn:
+                return fn(WriteTxn(txn, self._db))
+        except lmdb.MapFullError as exc:
+            raise StorageFullError(
+                "LMDB map size исчерпан, увеличьте DOCVAULT_MAP_SIZE"
+            ) from exc
 
     def get(self, key: bytes) -> bytes | None:
         with self._env.begin(db=self._db) as txn:

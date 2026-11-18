@@ -18,6 +18,10 @@ class CapabilityClaims:
     draft_id: str | None = None
 
 
+def token_fingerprint(token: str) -> str:
+    return hashlib.sha256(token.encode("ascii")).hexdigest()[:16]
+
+
 def _secret() -> bytes:
     raw = os.environ.get("DOCVAULT_CAPABILITY_SECRET", "")
     if not raw:

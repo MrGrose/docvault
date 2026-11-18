@@ -4,6 +4,7 @@ from core.capability.tokens import (
     CapabilityClaims,
     assert_op_allowed,
     assert_path_allowed,
+    token_fingerprint,
     verify_token,
 )
 from core.errors import AuthzError, ConflictError, IdempotencyMismatchError
@@ -70,7 +71,7 @@ class CapabilityBroker:
             "draft_id": draft_id,
             "path": path,
             "content": content,
-            "token_fp": token[:16],
+            "token_fp": token_fingerprint(token),
         }
         fingerprint = fingerprint_json(payload)
         scope_id = build_scope_id(
