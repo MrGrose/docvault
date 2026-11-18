@@ -3,9 +3,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from api.deps import get_repository
+from api.schemas import COMMON_RESPONSES
 from core.keys import DEFAULT_SPACE
 
-router = APIRouter(prefix="/docs", tags=["docs"])
+router = APIRouter(prefix="/docs", tags=["docs"], responses=COMMON_RESPONSES)
 
 
 @router.get("/tree")

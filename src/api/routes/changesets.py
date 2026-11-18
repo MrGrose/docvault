@@ -5,11 +5,12 @@ from pydantic import BaseModel, Field
 
 from api.deps import get_idempotency, get_repository
 from api.middleware.idempotency import run_idempotent
+from api.schemas import COMMON_RESPONSES
 from core.keys import DEFAULT_OWNER, DEFAULT_SPACE
 from core.kv import WriteTxn
 from core.repo import Repository
 
-router = APIRouter(prefix="/changesets", tags=["changesets"])
+router = APIRouter(prefix="/changesets", tags=["changesets"], responses=COMMON_RESPONSES)
 
 
 class CreateChangesetBody(BaseModel):
@@ -38,12 +39,11 @@ def _draft(repo: Repository, draft_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("")
-def create_changeset(body: CreateChangesetBody, response: Response) -> dict[str, Any]:
+@router.post("", status_code=201)
+def create_changeset(body: CreateChangesetBody) -> dict[str, Any]:
     repo = _repo()
     head = repo.pointers.head(body.space)
     draft = repo.drafts.create(body.space, body.owner, head)
-    response.status_code = 201
     return {
         "id": draft["id"],
         "space": draft["space"],
@@ -88,11 +88,8 @@ def put_doc(
     path: str,
     body: WriteDocBody,
     response: Response,
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str = Header(alias="Idempotency-Key"),
 ) -> dict[str, Any]:
-    if idempotency_key is None:
-        raise HTTPException(status_code=422, detail="Idempotency-Key обязателен")
-
     repo = _repo()
     draft = _draft(repo, draft_id)
     payload = {"draft_id": draft_id, "path": path, "content": body.content}
@@ -120,11 +117,8 @@ def publish(
     draft_id: str,
     body: PublishBody,
     response: Response,
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str = Header(alias="Idempotency-Key"),
 ) -> dict[str, Any]:
-    if idempotency_key is None:
-        raise HTTPException(status_code=422, detail="Idempotency-Key обязателен")
-
     repo = _repo()
     draft = _draft(repo, draft_id)
     expected = None if body.expected_head == "genesis" else body.expected_head.encode("utf-8")
@@ -162,11 +156,8 @@ def publish(
 def rebase(
     draft_id: str,
     response: Response,
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str = Header(alias="Idempotency-Key"),
 ) -> dict[str, Any]:
-    if idempotency_key is None:
-        raise HTTPException(status_code=422, detail="Idempotency-Key обязателен")
-
     repo = _repo()
     draft = _draft(repo, draft_id)
     payload = {"draft_id": draft_id}

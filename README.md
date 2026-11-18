@@ -189,7 +189,7 @@ uv run --with pip-audit pip-audit  # известные уязвимости з�
 make test          # pytest (unit + integration + BDD)
 make bench         # бенчмарк CDC: три сценария правки
 make bench-writers # 1000 публикаций, 8 воркеров, конфликты и время
-uv run --with schemathesis schemathesis run http://127.0.0.1:8000/openapi.json --checks not_a_server_error
+uv run --with schemathesis schemathesis run http://127.0.0.1:8000/openapi.json --checks all --exclude-checks allow_header_conformance
 uv run pytest tests/bdd/ -q
 uv run pytest --cov=src --cov-report=term-missing tests/
 ```

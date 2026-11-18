@@ -39,7 +39,10 @@ def create_app() -> FastAPI:
             header = request.headers.get("authorization", "")
             supplied = header[7:] if header.lower().startswith("bearer ") else ""
             if not hmac.compare_digest(supplied, token):
-                return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": "unauthorized", "detail": "unauthorized"},
+                )
         return await call_next(request)
 
     @app.get("/health")

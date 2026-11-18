@@ -3,9 +3,10 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from api.deps import get_repository
+from api.schemas import COMMON_RESPONSES
 from core.audit.log import list_records
 
-router = APIRouter(prefix="/audit", tags=["audit"])
+router = APIRouter(prefix="/audit", tags=["audit"], responses=COMMON_RESPONSES)
 
 
 @router.get("")

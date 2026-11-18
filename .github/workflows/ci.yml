@@ -55,4 +55,4 @@ jobs:
             curl -sf http://127.0.0.1:8000/health && break
             sleep 1
           done
-          uv run --with schemathesis schemathesis run http://127.0.0.1:8000/openapi.json --max-examples 20 --checks not_a_server_error
+          uv run --with schemathesis schemathesis run http://127.0.0.1:8000/openapi.json --max-examples 20 --checks all --exclude-checks allow_header_conformance

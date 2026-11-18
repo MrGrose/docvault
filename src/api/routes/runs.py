@@ -10,6 +10,7 @@ from agent.extract import changed_paragraphs
 from agent.stages.validate import aggregate_status, validate_claims_for_change
 from api.deps import get_idempotency, get_repository
 from api.middleware.idempotency import run_idempotent
+from api.schemas import COMMON_RESPONSES
 from core.errors import UngroundedError
 from core.keys import DEFAULT_OWNER, DEFAULT_SPACE
 from core.kv import WriteTxn
@@ -17,7 +18,7 @@ from core.repo import Repository
 from core.runs.store import RunStore
 from core.storage.draft_store import draft_content_hash
 
-router = APIRouter(prefix="/runs", tags=["runs"])
+router = APIRouter(prefix="/runs", tags=["runs"], responses=COMMON_RESPONSES)
 
 
 class ClaimModel(BaseModel):
@@ -211,11 +212,8 @@ def post_verdict(
     run_id: str,
     body: VerdictBody,
     response: Response,
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str = Header(alias="Idempotency-Key"),
 ) -> dict[str, Any]:
-    if idempotency_key is None:
-        raise HTTPException(status_code=422, detail="Idempotency-Key обязателен")
-
     try:
         run = _runs().get(run_id)
     except KeyError as exc:
