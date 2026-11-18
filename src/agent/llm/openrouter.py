@@ -1,6 +1,7 @@
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 
 DEFAULT_MODEL = "cohere/north-mini-code:free"
@@ -21,8 +22,12 @@ def complete(prompt: str, model: str | None = None, timeout: float = 90.0) -> st
         "model": chosen,
         "messages": [{"role": "user", "content": prompt}],
     }
+    url = os.environ.get("DOCVAULT_LLM_URL", DEFAULT_URL)
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "openrouter.ai":
+        raise LlmError("неверный адрес LLM")
     request = urllib.request.Request(
-        os.environ.get("DOCVAULT_LLM_URL", DEFAULT_URL),
+        url,
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -31,7 +36,7 @@ def complete(prompt: str, model: str | None = None, timeout: float = 90.0) -> st
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
             data = json.load(response)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:300]

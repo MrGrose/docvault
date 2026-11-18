@@ -16,7 +16,8 @@
 - Buzhash CDC и дедупликация крупных blob.
 - Claims с тремя результатами: evidence, binding к измененному фрагменту, support как подсказка.
 - Provenance с хэшем цитаты и ссылкой на источник, audit на каждый publish в одной транзакции.
-- Capability broker по UDS, токен привязан к space и draft_id, отзыв по `jti`.
+- Capability broker по UDS, токен привязан к space, draft_id и run_id, отзыв по `jti`, запись агента в audit.
+- TTL идемпотентности, метрики `/metrics`, property-тесты Hypothesis, bench на 1000 публикаций.
 - API может требовать bearer token, списки черновиков и прогонов, кандидаты claims из диффа.
 - Docker sandbox: без сети, лимиты памяти, CPU, pids, read-only rootfs, non-root.
 - UI на `/ui`: список черновиков, список прогонов, diff, цитаты, статусы и предупреждение о ручной проверке смысла.
@@ -71,12 +72,12 @@ make demo-hitol
 
 | Проверка | Результат |
 |----------|-----------|
-| `uv run pytest` | 162 теста проходят, 1 скипается (fault-тест требует Docker) |
+| `uv run pytest` | 178 тестов проходят, 1 скипается (fault-тест требует Docker) |
 | `uv run pytest --cov=src` | покрытие 91% по `src` |
 | `uv run ruff check .` и `uv run mypy src` | без замечаний, mypy в strict-режиме |
 | Локальность CDC | вставка одного байта в файл 96 КБ меняет 1 чанк из 27 |
 | Конкурентность | симуляция 100 черновиков с rebase: 100 changesets, ни один файл не потерян |
-| CI | ruff, формат, mypy, pytest с порогом покрытия; fault-тест отдельным job в Docker |
+| CI | ruff, формат, mypy, pytest с порогом покрытия, pip-audit, bandit; fault-тест отдельным job в Docker |
 
 Числа получены на локальной машине (8 ядер), воспроизводятся командами из раздела Development.
 
@@ -168,14 +169,14 @@ curl -s "$BASE/audit?limit=20"
 - Одна нода и один процесс: LMDB, размер карты задается `DOCVAULT_MAP_SIZE` при открытии, на лету не растет.
 - LMDB пускает одного писателя; конкурентность держится на CAS и rebase, а не на параллельной записи.
 - Rebase не делает трехсторонний merge: конфликтные пути помечаются и правятся вручную.
-- Capability-токен это HMAC с TTL, привязанный к space и draft_id; списка отзыва нет.
+- Capability-токен это HMAC с TTL, привязанный к space, draft_id и run_id; отзыв по `jti`.
 - Песочница требует Docker и `docker.sock` на хосте, broker слушает только UDS.
 - Проверяется буквальная цитата и привязка к изменению; смысл утверждения проверяет человек.
-- Provenance заполняется только в HITL, где есть claims. Публикация из CLI и обычный publish пишут пустой список.
-- Список отозванных `jti` хранится без TTL и не чистится.
+- Provenance у HITL состоит из claims, у CLI и обычного publish из путей и blob-хэшей.
+- Список отозванных `jti` хранится без TTL и не чистится автоматически.
 - Bearer token API один на инстанс, без ролей и пользователей.
-- Идемпотентные ключи хранятся без TTL, журнал аудита только дописывается.
-- API без аутентификации, только localhost. Для удаленного доступа SSH tunnel, не VPN и не публичный интерфейс.
+- Идемпотентные ключи живут 7 дней по умолчанию, очистка вызывается методом `purge_expired`, фонового job нет.
+- API без аутентификации по умолчанию, только localhost. С `DOCVAULT_API_TOKEN` нужен bearer token. Для удаленного доступа SSH tunnel, не VPN и не публичный интерфейс.
 - Полнотекстового поиска нет.
 
 ## Development
@@ -185,6 +186,7 @@ make lint          # ruff + mypy src
 uv run --with pip-audit pip-audit  # известные уязвимости зависимостей
 make test          # pytest (unit + integration + BDD)
 make bench         # бенчмарк CDC: три сценария правки
+make bench-writers # 1000 публикаций, 8 воркеров, конфликты и время
 uv run pytest tests/bdd/ -q
 uv run pytest --cov=src --cov-report=term-missing tests/
 ```
@@ -202,6 +204,7 @@ uv run pytest --cov=src --cov-report=term-missing tests/
 | `demo_hitol.sh` | Claims, вердикт, audit |
 | `hitol_demo_client.py` | HTTP-клиент для HITL-демо |
 | `bench_cdc.py` | Бенч buzhash и fixed-chunk |
+| `bench_writers.py` | 1000 конкурентных публикаций без потерь |
 
 ## Architecture
 

@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.middleware.errors import register_error_handlers
-from api.routes import audit, capability, changesets, docs, runs
+from api.routes import audit, capability, changesets, docs, metrics, runs
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "static"
 
@@ -21,6 +21,7 @@ def create_app() -> FastAPI:
     app.include_router(runs.router)
     app.include_router(audit.router)
     app.include_router(capability.router)
+    app.include_router(metrics.router)
     if UI_DIR.is_dir():
         app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
 

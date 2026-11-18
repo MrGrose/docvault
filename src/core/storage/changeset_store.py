@@ -7,6 +7,7 @@ from core.audit.log import append_in_txn
 from core.errors import ConflictError, RebaseRequiredError
 from core.keys import cs_key, head_key
 from core.kv import LmdbKv, WriteTxn
+from core.metrics import inc
 from core.storage.blob_store import BlobStore
 from core.storage.draft_store import DraftStore
 from core.storage.pointer_store import PointerStore
@@ -103,6 +104,17 @@ class ChangesetStore:
         parent_raw = txn.get(head_key(space))
         parent_id = parent_raw.decode() if parent_raw else None
 
+        if not provenance:
+            provenance = [
+                {
+                    "path": path,
+                    "blob_hash": blob_hash,
+                    "source": source,
+                    "author": author,
+                }
+                for path, blob_hash in sorted(paths.items())
+            ]
+
         cs_id = uuid.uuid4().hex
         record: dict[str, Any] = {
             "id": cs_id,
@@ -115,7 +127,7 @@ class ChangesetStore:
             "run_id": run_id,
             "message": message,
             "draft_id": draft_id,
-            "provenance": list(provenance or []),
+            "provenance": list(provenance),
             "status": "published",
         }
         body = json.dumps(record, ensure_ascii=False).encode("utf-8")
@@ -128,12 +140,15 @@ class ChangesetStore:
                 expected_head=expected_head,
             )
         except ConflictError as exc:
+            inc("docvault_publish_conflict_total")
             actual = txn.get(head_key(space))
             raise RebaseRequiredError(
                 f"{exc}; actual_head={actual.decode() if actual else None}"
             ) from exc
 
         self._drafts.mark_published_in_txn(txn, draft_id, cs_id)
+        inc("docvault_publish_total")
+        inc(f"docvault_publish_{source}_total")
         append_in_txn(
             txn,
             {

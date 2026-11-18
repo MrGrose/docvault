@@ -21,7 +21,7 @@ class DockerRuntime:
             "cap_drop": ["ALL"],
             "user": os.environ.get("DOCVAULT_SANDBOX_USER", "1000:1000"),
             "read_only": True,
-            "tmpfs": {"/tmp": "rw,size=64m"},
+            "tmpfs": {"/tmp": "rw,size=64m"},  # nosec B108
             "detach": True,
             "remove": False,
         }

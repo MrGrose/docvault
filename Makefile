@@ -25,3 +25,6 @@ test-fault:
 
 bench:
 	uv run python scripts/bench_cdc.py
+
+bench-writers:
+	uv run python scripts/bench_writers.py --writers 1000 --workers 8

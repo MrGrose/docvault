@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import uuid
 from typing import Any
@@ -42,17 +43,18 @@ class SandboxSdkClient:
         path: str,
         content: str,
         idempotency_key: str,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
-        return self.call(
-            "write_doc",
-            token,
-            {
-                "space": space,
-                "path": path,
-                "content": content,
-                "idempotency_key": idempotency_key,
-            },
-        )
+        bound_run = run_id or os.environ.get("DOCVAULT_RUN_ID", "")
+        params = {
+            "space": space,
+            "path": path,
+            "content": content,
+            "idempotency_key": idempotency_key,
+        }
+        if bound_run:
+            params["run_id"] = bound_run
+        return self.call("write_doc", token, params)
 
     def ping(self, token: str) -> bool:
         res = self.call("ping", token, {})

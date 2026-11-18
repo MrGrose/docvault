@@ -1,5 +1,6 @@
 from typing import Any
 
+from core.audit.log import append_in_txn
 from core.capability.revocation import RevocationStore
 from core.capability.tokens import (
     CapabilityClaims,
@@ -13,6 +14,7 @@ from core.idempotency import build_scope_id, fingerprint_json
 from core.idempotency.store import IdempotencyStore
 from core.keys import DEFAULT_OWNER
 from core.kv import WriteTxn
+from core.metrics import inc
 from core.repo import Repository
 
 ALLOWED_METHODS = frozenset({"write_doc", "ping"})
@@ -25,6 +27,13 @@ class CapabilityBroker:
         self._revoked = RevocationStore(repo.kv)
 
     def handle(self, method: str, token: str, params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self._dispatch(method, token, params)
+        except AuthzError:
+            inc("docvault_broker_denied_total")
+            raise
+
+    def _dispatch(self, method: str, token: str, params: dict[str, Any]) -> dict[str, Any]:
         if method not in ALLOWED_METHODS:
             raise AuthzError(f"method не в whitelist: {method}")
         if method == "ping":
@@ -51,6 +60,11 @@ class CapabilityBroker:
         token: str,
         params: dict[str, Any],
     ) -> dict[str, Any]:
+        if not claims.run_id:
+            raise AuthzError("token без run_id")
+        supplied_run = str(params.get("run_id", ""))
+        if supplied_run != claims.run_id:
+            raise AuthzError("run_id не совпадает с token")
         space = str(params.get("space", claims.space))
         if space != claims.space:
             raise AuthzError("space не совпадает с token")
@@ -92,6 +106,19 @@ class CapabilityBroker:
 
         def handler(txn: WriteTxn) -> tuple[int, dict[str, Any]]:
             blob_hash = repo.write_draft_in_txn(txn, draft_id, path, content)
+            append_in_txn(
+                txn,
+                {
+                    "event": "broker_write",
+                    "source": "agent",
+                    "actor": claims.agent_id or "agent",
+                    "run_id": claims.run_id,
+                    "space": space,
+                    "draft_id": draft_id,
+                    "path": path,
+                    "blob_hash": blob_hash,
+                },
+            )
             return 200, {
                 "path": path,
                 "blob_hash": blob_hash,

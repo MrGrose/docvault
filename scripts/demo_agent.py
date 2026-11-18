@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -72,11 +73,14 @@ def main() -> int:
     draft_id = str(draft["id"])
     print(f"draft: {draft_id}")
 
+    run_id = uuid.uuid4().hex
     token = issue_token(
         space=space,
         path_prefixes=["docs/"],
         ops=["write_doc", "ping"],
         draft_id=draft_id,
+        run_id=run_id,
+        agent_id="demo-agent",
     )
     server = UdsBrokerServer(str(socket_path), CapabilityBroker(repo))
     server.start_background()
@@ -90,6 +94,7 @@ def main() -> int:
         "DOCVAULT_CAPABILITY_TOKEN": token,
         "DOCVAULT_SPACE": space,
         "DOCVAULT_IDEM_KEY": os.environ.get("DOCVAULT_IDEM_KEY", "demo-agent-write-1"),
+        "DOCVAULT_RUN_ID": run_id,
         "PYTHONPATH": "/work/src" if docker_ready() else str(ROOT / "src"),
         "PYTHONDONTWRITEBYTECODE": "1",
     }

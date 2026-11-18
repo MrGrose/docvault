@@ -18,6 +18,8 @@ class CapabilityClaims:
     exp: int
     draft_id: str | None = None
     jti: str | None = None
+    run_id: str | None = None
+    agent_id: str | None = None
 
 
 def token_fingerprint(token: str) -> str:
@@ -45,6 +47,8 @@ def issue_token(
     draft_id: str,
     ttl_seconds: int = 3600,
     jti: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
 ) -> str:
     secret = _secret()
     exp = int(time.time()) + ttl_seconds
@@ -55,6 +59,8 @@ def issue_token(
         "exp": exp,
         "draft_id": draft_id,
         "jti": jti or uuid.uuid4().hex,
+        "run_id": run_id,
+        "agent_id": agent_id,
     }
     payload_b64 = (
         base64.urlsafe_b64encode(
@@ -84,6 +90,8 @@ def verify_token(token: str) -> CapabilityClaims:
         raise AuthzError("token истек")
     draft_raw = data.get("draft_id")
     jti_raw = data.get("jti")
+    run_raw = data.get("run_id")
+    agent_raw = data.get("agent_id")
     return CapabilityClaims(
         space=str(data["space"]),
         path_prefixes=tuple(str(x) for x in data["path_prefixes"]),
@@ -91,6 +99,8 @@ def verify_token(token: str) -> CapabilityClaims:
         exp=exp,
         draft_id=str(draft_raw) if draft_raw else None,
         jti=str(jti_raw) if jti_raw else None,
+        run_id=str(run_raw) if run_raw else None,
+        agent_id=str(agent_raw) if agent_raw else None,
     )
 
 

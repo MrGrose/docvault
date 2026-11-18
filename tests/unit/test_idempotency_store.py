@@ -10,6 +10,7 @@ from core.errors import (
     IdempotencyRaceError,
     RebaseRequiredError,
 )
+from core.idempotency import store as store_module
 from core.idempotency.store import IdempotencyStore
 from core.kv import LmdbKv, WriteTxn
 
@@ -85,4 +86,34 @@ def test_rebase_error_is_not_retried(tmp_path: Path) -> None:
 
     with pytest.raises(RebaseRequiredError):
         store.execute("scope-1", "fp-1", _raise(RebaseRequiredError("stale")))
+    kv.close()
+
+
+def test_expired_key_runs_handler_again(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DOCVAULT_IDEMPOTENCY_TTL", "10")
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(store_module, "_now", lambda: clock["now"])
+    kv = LmdbKv.open(tmp_path / "db")
+    store = IdempotencyStore(kv)
+
+    assert store.execute("scope-1", "fp-1", _handler(200, {"v": 1})) == (200, {"v": 1}, False)
+    assert store.execute("scope-1", "fp-1", _handler(500)) == (200, {"v": 1}, True)
+
+    clock["now"] = 1011.0
+    assert store.execute("scope-1", "fp-1", _handler(201, {"v": 2})) == (201, {"v": 2}, False)
+    kv.close()
+
+
+def test_purge_expired_removes_old_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DOCVAULT_IDEMPOTENCY_TTL", "10")
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(store_module, "_now", lambda: clock["now"])
+    kv = LmdbKv.open(tmp_path / "db")
+    store = IdempotencyStore(kv)
+    store.execute("scope-1", "fp-1", _handler())
+    store.execute("scope-2", "fp-2", _handler())
+
+    assert store.purge_expired() == 0
+    clock["now"] = 1020.0
+    assert store.purge_expired() == 2
     kv.close()

@@ -48,3 +48,15 @@ def test_tampered_token() -> None:
     bad = token[:-1] + ("a" if token[-1] != "a" else "b")
     with pytest.raises(AuthzError):
         verify_token(bad)
+
+
+def test_token_carries_run_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DOCVAULT_CAPABILITY_SECRET", "s")
+    token = issue_token(
+        space="default",
+        path_prefixes=["docs/"],
+        ops=["write_doc"],
+        draft_id="d1",
+        run_id="run-9",
+    )
+    assert verify_token(token).run_id == "run-9"

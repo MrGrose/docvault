@@ -65,3 +65,18 @@ def test_api_publish_writes_one_audit_record(api: Any) -> None:
     assert len(publishes) == 1
     assert publishes[0]["source"] == "api"
     assert publishes[0]["actor"] == "user:host"
+    repo = get_repository()
+    cs = repo.changesets.get(str(publishes[0]["changeset_id"]))
+    assert cs["provenance"][0]["path"] == "docs/a.md"
+    assert cs["provenance"][0]["blob_hash"]
+    assert cs["provenance"][0]["source"] == "api"
+
+
+def test_metrics_endpoint_reports_publish(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/m.md", "text", "w-metrics")
+    api.publish_ok(draft["id"], None, "p-metrics")
+    res = api.client.get("/metrics")
+    assert res.status_code == 200
+    assert "docvault_publish_total" in res.text
+    assert "docvault_publish_api_total" in res.text
