@@ -6,6 +6,7 @@ import pytest
 from core.errors import AuthzError, ConflictError
 from core.keys import DEFAULT_SPACE
 from core.repo import Repository
+from core.storage.draft_store import draft_content_hash
 
 
 def _draft_with_file(repo: Repository, path: str, content: bytes) -> dict[str, Any]:
@@ -152,3 +153,13 @@ def test_rebase_closed_draft_is_rejected(tmp_path: Path) -> None:
             repo.rebase_draft(str(draft["id"]))
     finally:
         repo.close()
+
+
+def test_content_hash_changes_with_paths_and_base(tmp_path: Path) -> None:
+    repo = Repository.init(tmp_path / "repo")
+    first = repo.drafts.create("default", "user:host", None, paths={"docs/a.md": "1"})
+    second = repo.drafts.create("default", "user:host", None, paths={"docs/a.md": "1"})
+    third = repo.drafts.create("default", "user:host", None, paths={"docs/a.md": "2"})
+    assert draft_content_hash(first) == draft_content_hash(second)
+    assert draft_content_hash(first) != draft_content_hash(third)
+    repo.close()

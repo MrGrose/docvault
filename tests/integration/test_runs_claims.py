@@ -169,3 +169,34 @@ def test_run_view_truncates_large_document(api: Any) -> None:
     run_id = created.json()["id"]
     view = api.client.get(f"/runs/{run_id}").json()
     assert view["documents"]["docs/big.md"]["truncated"] is True
+
+
+def test_verdict_rejects_content_changed_after_run(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/a.md", "first", "w-before-run")
+    created = api.client.post(
+        "/runs",
+        json={"draft_id": draft["id"], "claims": []},
+    )
+    run_id = created.json()["id"]
+    api.write_ok(draft["id"], "docs/a.md", "second", "w-after-run")
+
+    response = api.client.post(
+        f"/runs/{run_id}/verdicts",
+        json={"verdict": "accept", "expected_head": "genesis"},
+        headers={"Idempotency-Key": "accept-stale"},
+    )
+    assert response.status_code == 409
+    assert "изменился" in response.text
+    assert api.client.get(f"/changesets/{draft['id']}").json()["status"] == "open"
+
+
+def test_list_runs_returns_latest_first(api: Any) -> None:
+    draft = api.draft()
+    first = api.client.post("/runs", json={"draft_id": draft["id"], "claims": []}).json()
+    second = api.client.post("/runs", json={"draft_id": draft["id"], "claims": []}).json()
+    listed = api.client.get(f"/runs?draft_id={draft['id']}").json()["items"]
+    ids = [item["id"] for item in listed]
+    assert set(ids) == {first["id"], second["id"]}
+    assert listed[0]["claims"] == 0
+    assert api.client.get("/runs?status=missing").json()["items"] == []

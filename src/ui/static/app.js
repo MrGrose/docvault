@@ -150,6 +150,54 @@ async function verdict(v) {
   }
 }
 
+async function refreshRuns() {
+  const draft = document.getElementById("draftSelect").value;
+  const query = draft ? `?draft_id=${encodeURIComponent(draft)}&limit=50` : "?limit=50";
+  const res = await fetch(`/runs${query}`);
+  const data = await readResponse(res);
+  const select = document.getElementById("runSelect");
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = data.error ? "ошибка списка" : "выберите прогон";
+  select.appendChild(empty);
+  (data.items || []).forEach((run) => {
+    const option = document.createElement("option");
+    option.value = run.id;
+    option.textContent = `${run.id.slice(0, 10)} ${run.status} claims:${run.claims}`;
+    select.appendChild(option);
+  });
+}
+
+async function refreshLists() {
+  const res = await fetch("/changesets?status=open&limit=50");
+  const data = await readResponse(res);
+  const select = document.getElementById("draftSelect");
+  select.replaceChildren();
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = "все черновики";
+  select.appendChild(all);
+  (data.items || []).forEach((draft) => {
+    const option = document.createElement("option");
+    option.value = draft.id;
+    option.textContent = `${draft.id.slice(0, 10)} ${draft.owner} файлов:${draft.paths.length}`;
+    select.appendChild(option);
+  });
+  await refreshRuns();
+}
+
 document.getElementById("loadBtn").onclick = loadRun;
+document.getElementById("refreshBtn").onclick = refreshLists;
+document.getElementById("draftSelect").onchange = refreshRuns;
+document.getElementById("runSelect").onchange = () => {
+  const id = document.getElementById("runSelect").value;
+  if (!id) {
+    return;
+  }
+  document.getElementById("runId").value = id;
+  loadRun();
+};
+refreshLists();
 document.getElementById("acceptBtn").onclick = () => verdict("accept");
 document.getElementById("rejectBtn").onclick = () => verdict("reject");

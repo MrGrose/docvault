@@ -52,6 +52,31 @@ def create_changeset(body: CreateChangesetBody, response: Response) -> dict[str,
     }
 
 
+@router.get("")
+def list_drafts(
+    space: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    drafts = _repo().drafts.list(space=space, status=status, limit=limit)
+    return {
+        "items": [
+            {
+                "id": draft["id"],
+                "space": draft.get("space"),
+                "owner": draft.get("owner"),
+                "base_head": draft.get("base_head"),
+                "status": draft.get("status"),
+                "changeset_id": draft.get("changeset_id"),
+                "created_at": draft.get("created_at"),
+                "paths": sorted((draft.get("paths") or {}).keys()),
+                "conflicts": draft.get("conflicts") or [],
+            }
+            for draft in drafts
+        ]
+    }
+
+
 @router.get("/{draft_id}")
 def get_draft(draft_id: str) -> dict[str, Any]:
     return _draft(_repo(), draft_id)

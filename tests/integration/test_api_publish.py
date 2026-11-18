@@ -123,3 +123,14 @@ def test_rebase_closed_draft_returns_409(api: Any) -> None:
         headers={"Idempotency-Key": "r-closed"},
     )
     assert response.status_code == 409
+
+
+def test_list_drafts_filters_by_status(api: Any) -> None:
+    opened = api.draft()
+    closed = api.draft()
+    api.write_ok(closed["id"], "docs/x.md", "x", "w-list")
+    api.publish_ok(closed["id"], None, "p-list")
+    listed = api.client.get("/changesets?status=open").json()["items"]
+    ids = {item["id"] for item in listed}
+    assert opened["id"] in ids
+    assert closed["id"] not in ids

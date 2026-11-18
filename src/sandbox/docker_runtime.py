@@ -46,9 +46,14 @@ class DockerRuntime:
             working_dir=workdir,
             **self._limits(),
         )
-        result = container.wait(timeout=int(os.environ.get("DOCVAULT_SANDBOX_TIMEOUT", "120")))
-        exit_code = int(result.get("StatusCode", 125))
-        return RunResult(container_id=container.id or "", exit_code=exit_code)
+        try:
+            result = container.wait(timeout=int(os.environ.get("DOCVAULT_SANDBOX_TIMEOUT", "120")))
+            exit_code = int(result.get("StatusCode", 125))
+            if exit_code != 0:
+                print(container.logs().decode("utf-8", "replace"), flush=True)
+            return RunResult(container_id=container.id or "", exit_code=exit_code)
+        finally:
+            container.remove(force=True)
 
     def spawn_idle(self, image: str, command: list[str]) -> str:
         container = self._client.containers.run(image, command=command, **self._limits())

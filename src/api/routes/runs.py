@@ -14,6 +14,7 @@ from core.keys import DEFAULT_OWNER, DEFAULT_SPACE
 from core.kv import WriteTxn
 from core.repo import Repository
 from core.runs.store import RunStore
+from core.storage.draft_store import draft_content_hash
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -101,6 +102,7 @@ def create_run(body: CreateRunBody) -> dict[str, Any]:
             "space": body.space,
             "draft_id": body.draft_id,
             "base_head": draft.get("base_head"),
+            "content_hash": draft_content_hash(draft),
             "status": status,
             "claims": [c.__dict__ for c in claims],
             "validations": [r.__dict__ for r in results],
@@ -148,6 +150,31 @@ def _run_view(repo: Repository, run: dict[str, Any]) -> dict[str, Any]:
     return view
 
 
+@router.get("")
+def list_runs(
+    space: str | None = None,
+    status: str | None = None,
+    draft_id: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    runs = _runs().list(space=space, status=status, draft_id=draft_id, limit=limit)
+    return {
+        "items": [
+            {
+                "id": run["id"],
+                "space": run.get("space"),
+                "draft_id": run.get("draft_id"),
+                "status": run.get("status"),
+                "verdict": run.get("verdict"),
+                "changeset_id": run.get("changeset_id"),
+                "created_at": run.get("created_at"),
+                "claims": len(run.get("claims") or []),
+            }
+            for run in runs
+        ]
+    }
+
+
 @router.get("/{run_id}")
 def get_run(run_id: str) -> dict[str, Any]:
     try:
@@ -184,6 +211,17 @@ def post_verdict(
     if not draft_id:
         raise HTTPException(status_code=422, detail="run без draft_id")
     repo = _repo()
+    try:
+        draft = repo.drafts.get(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if draft.get("status") != "open":
+        raise HTTPException(status_code=409, detail="draft не открыт")
+    if draft_content_hash(draft) != str(run.get("content_hash") or ""):
+        raise HTTPException(
+            status_code=409,
+            detail="черновик изменился после ревью, создайте новый run",
+        )
     expected = None if body.expected_head == "genesis" else body.expected_head.encode("utf-8")
     payload = {**body.model_dump(), "run_id": run_id, "draft_id": draft_id}
 

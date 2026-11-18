@@ -80,3 +80,7 @@ def test_ui_exposes_diff_and_human_warning() -> None:
     assert "Смысловую корректность" in html
     assert "documents" in script
     assert "expected_head" in script
+    assert 'id="draftSelect"' in html
+    assert 'id="runSelect"' in html
+    assert "?limit=50" in script
+    assert "refreshLists" in script

@@ -16,6 +16,15 @@
     <section class="card" aria-labelledby="run-heading">
       <h2 id="run-heading">Run</h2>
       <div class="run-row">
+        <label for="draftSelect">Draft</label>
+        <select id="draftSelect"><option value="">все черновики</option></select>
+        <button type="button" id="refreshBtn">Обновить</button>
+      </div>
+      <div class="run-row">
+        <label for="runSelect">Run</label>
+        <select id="runSelect"><option value="">нет прогонов</option></select>
+      </div>
+      <div class="run-row">
         <label for="runId">Run ID</label>
         <input id="runId" type="text" autocomplete="off" spellcheck="false" placeholder="uuid run" />
         <button type="button" id="loadBtn">Load</button>

@@ -13,6 +13,7 @@ class _FakeContainer:
         self._status = status
         self.wait_timeout: int | None = None
         self.killed = False
+        self.removed = False
 
     def wait(self, timeout: int) -> dict[str, Any]:
         self.wait_timeout = timeout
@@ -20,6 +21,12 @@ class _FakeContainer:
 
     def kill(self) -> None:
         self.killed = True
+
+    def logs(self) -> bytes:
+        return b""
+
+    def remove(self, force: bool = False) -> None:
+        self.removed = force
 
 
 class _FakeContainers:
@@ -78,6 +85,7 @@ def test_run_sets_isolation_flags(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "/tmp" in kwargs["tmpfs"]
     assert kwargs["volumes"] == {"/host/work": {"bind": "/work", "mode": "rw"}}
     assert container.wait_timeout == 120
+    assert container.removed is True
 
 
 def test_run_honours_env_limits(monkeypatch: pytest.MonkeyPatch) -> None:

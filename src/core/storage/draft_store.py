@@ -1,3 +1,4 @@
+import hashlib
 import json
 import time
 import uuid
@@ -6,6 +7,19 @@ from typing import Any, cast
 from core.errors import AuthzError, ConflictError
 from core.keys import draft_key
 from core.kv import LmdbKv, WriteTxn
+
+
+def draft_content_hash(draft: dict[str, Any]) -> str:
+    digest = hashlib.sha256()
+    digest.update(str(draft.get("base_head") or "genesis").encode("utf-8"))
+    digest.update(b"\n")
+    paths = dict(draft.get("paths") or {})
+    for path in sorted(paths):
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(paths[path]).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 class DraftStore:
@@ -63,6 +77,23 @@ class DraftStore:
         body = json.dumps(draft, ensure_ascii=False).encode("utf-8")
         txn.put_new(draft_key(draft_id), body)
         return draft
+
+    def list(
+        self,
+        space: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for _, raw in self._kv.scan(draft_key("")):
+            data: dict[str, Any] = json.loads(raw.decode("utf-8"))
+            if space is not None and data.get("space") != space:
+                continue
+            if status is not None and data.get("status") != status:
+                continue
+            items.append(data)
+        items.sort(key=lambda d: int(d.get("created_at") or 0), reverse=True)
+        return items[:limit]
 
     def get(self, draft_id: str) -> dict[str, Any]:
         raw = self._kv.get(draft_key(draft_id))
