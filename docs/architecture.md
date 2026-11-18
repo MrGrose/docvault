@@ -46,7 +46,7 @@ flowchart LR
 | **UI** | Хост | Pending runs на `/ui` |
 | **Agent pipeline** | Хост | draft (sandbox) -> validate -> claims |
 | **Broker** | Хост | UDS: проверка capability token, `write_doc` |
-| **Sandbox** | Контейнер | `network none`, лимит pids, UDS к broker |
+| **Sandbox** | Контейнер | `network none`, лимиты памяти и CPU, non-root, no-new-privileges, UDS к broker |
 | **SDK client** | Контейнер | Вызовы broker из кода агента |
 
 Модули в `src/` (`api`, `broker`, `agent`, `sandbox`, `core`, `cli`), без отдельных деплоев на capability.
@@ -57,9 +57,9 @@ flowchart LR
 |-----|----------|
 | 1 | Инициализация репозитория и changeset (CLI или API) |
 | 2 | Исходные файлы в changeset (`write` / PUT doc) |
-| 3 | Draft - Python агента в Docker sandbox |
+| 3 | Draft - Python агента в Docker sandbox (сейчас фиксированный шаблон, модель не вызывается) |
 | 4 | SDK -> broker -> `write_doc` (после проверки token) |
-| 5 | Validate - ошибки sandbox |
+| 5 | Validate - evidence: цитата есть в байтах источника, support по токенам claim и цитаты |
 | 6 | Claims с evidence и `source_ref` |
 | 7 | Run в ожидании ревью |
 | 8 | Verdict в UI или `POST /runs/{id}/verdicts` |
@@ -85,12 +85,12 @@ sequenceDiagram
   API->>Repo: проверка цитаты, publish CAS, audit
 ```
 
-Прямой HTTP file-mode агента без sandbox в демо не используется. Антигаллюцинация LLM не гарантируется; при accept проверяется только буквальная цитата.
+Прямой HTTP file-mode агента без sandbox в демо не используется. Антигаллюцинация LLM не гарантируется; при accept проверяется только буквальная цитата. Draft в текущем коде это фиксированный шаблон `draft_tariffs_code()`, вызова модели нет; стадия с моделью описана в плане развития.
 
 ## Хранение и версионирование
 
-- **Space** (по умолчанию `docvault`) и **`meta:head`** с монотонным `revision`.
-- **Changeset** (`cs:{id}`): метаданные и дерево документов; publish при `expected_head` (конфликт -> 409).
+- **Space** (по умолчанию `default`) и указатель **`head:{space}`** с идентификатором опубликованного changeset.
+- **Changeset** (`cs:{id}`, идентификатор uuid4): метаданные и дерево документов; publish при `expected_head` (конфликт -> 409).
 - **Blob store** + **CDC** для крупного содержимого.
 - **Idempotency-Key** на мутациях API.
 - **Audit** в LMDB, в том числе события HITL publish.
@@ -103,7 +103,7 @@ CLI и API используют один путь данных (`DOCVAULT_PATH` 
 |----------|-----------|
 | Capability token | HMAC (`DOCVAULT_CAPABILITY_SECRET`): space, префиксы путей, ops |
 | Broker UDS | Единственный путь sandbox -> LMDB для `write_doc` |
-| Docker sandbox | `network_mode=none`, cgroup pids |
+| Docker sandbox | `network_mode=none`, `mem_limit`, `nano_cpus`, non-root, no-new-privileges; `pids_limit` не задан |
 | docker.sock | Только на хосте (orchestrator) |
 | Секреты | Только из env |
 
