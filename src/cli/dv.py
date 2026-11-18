@@ -112,6 +112,7 @@ def cmd_commit(args: argparse.Namespace) -> int:
             expected_head=expected,
             message=args.message,
             author=args.author,
+            source="cli",
         )
         _clear_state(repo)
         print(cs_id)

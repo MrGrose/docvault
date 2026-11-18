@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 
 from cli.dv import main
+from core.audit.log import list_records
+from core.repo import Repository
 
 
 def _write_source(path: Path, content: str) -> Path:
@@ -27,6 +29,12 @@ def test_cli_full_flow(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> No
     assert main(["--path", str(repo), "commit", "-m", "first", "--expect-head", "genesis"]) == 0
     cs_id = capsys.readouterr().out.strip()
     assert len(cs_id) == 32
+
+    opened = Repository.open(repo)
+    records = list_records(opened.kv)
+    opened.close()
+    assert records[-1]["event"] == "publish"
+    assert records[-1]["source"] == "cli"
 
     assert main(["--path", str(repo), "log"]) == 0
     log_out = capsys.readouterr().out

@@ -14,3 +14,6 @@ def test_publish_retry_same_idempotency_key(api: Any) -> None:
         again = api.client.post(f"/changesets/{draft['id']}/publish", json=body, headers=headers)
         assert again.status_code == 200
         assert again.json()["changeset_id"] == cs_id
+
+    audit = api.client.get("/audit").json()["records"]
+    assert len([r for r in audit if r.get("event") == "publish"]) == 1

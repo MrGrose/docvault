@@ -45,6 +45,23 @@ def test_hitl_accept_writes_audit_and_changeset(api: Any) -> None:
     audit = api.client.get("/audit?from_seq=1")
     assert audit.status_code == 200
     records = audit.json()["records"]
-    assert any(r.get("event") == "hitl_publish" for r in records)
+    publishes = [r for r in records if r.get("event") == "publish"]
+    assert len(publishes) == 1
+    assert publishes[0]["source"] == "hitl"
+    assert publishes[0]["approver"] == "user:host"
     stored = repo.drafts.get(draft["id"])
     assert stored["status"] == "published"
+    cs = repo.changesets.get(str(publishes[0]["changeset_id"]))
+    assert cs["provenance"][0]["path"] == "docs/pricing.md"
+    assert cs["provenance"][0]["quote_hash"]
+
+
+def test_api_publish_writes_one_audit_record(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/a.md", "text", "w-api-1")
+    api.publish_ok(draft["id"], None, "p-api-1")
+    audit = api.client.get("/audit").json()["records"]
+    publishes = [r for r in audit if r.get("event") == "publish"]
+    assert len(publishes) == 1
+    assert publishes[0]["source"] == "api"
+    assert publishes[0]["actor"] == "user:host"

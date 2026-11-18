@@ -3,6 +3,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from core.audit.log import append_in_txn
 from core.errors import ConflictError, RebaseRequiredError
 from core.keys import cs_key, head_key
 from core.kv import LmdbKv, WriteTxn
@@ -41,6 +42,7 @@ class ChangesetStore:
         approver: str | None = None,
         run_id: str | None = None,
         provenance: list[dict[str, Any]] | None = None,
+        source: str = "api",
     ) -> str:
         result: dict[str, str] = {}
 
@@ -54,6 +56,7 @@ class ChangesetStore:
                 approver=approver,
                 run_id=run_id,
                 provenance=provenance,
+                source=source,
             )
 
         self._kv.run_write(body)
@@ -69,6 +72,7 @@ class ChangesetStore:
         approver: str | None = None,
         run_id: str | None = None,
         provenance: list[dict[str, Any]] | None = None,
+        source: str = "api",
     ) -> str:
         draft = self._drafts.get_in_txn(txn, draft_id)
         if draft.get("status") != "open":
@@ -130,6 +134,20 @@ class ChangesetStore:
             ) from exc
 
         self._drafts.mark_published_in_txn(txn, draft_id, cs_id)
+        append_in_txn(
+            txn,
+            {
+                "event": "publish",
+                "source": source,
+                "actor": author,
+                "approver": approver,
+                "run_id": run_id,
+                "space": space,
+                "draft_id": draft_id,
+                "changeset_id": cs_id,
+                "tree_hash": tree_hash,
+            },
+        )
         return cs_id
 
     def get(self, cs_id: str) -> dict[str, Any]:

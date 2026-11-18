@@ -1,3 +1,4 @@
+import hashlib
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Response
@@ -7,7 +8,6 @@ from agent.claims import Claim
 from agent.stages.validate import aggregate_status, validate_claims_for_change
 from api.deps import get_idempotency, get_repository
 from api.middleware.idempotency import run_idempotent
-from core.audit.log import append_in_txn
 from core.errors import UngroundedError
 from core.keys import DEFAULT_OWNER, DEFAULT_SPACE
 from core.kv import WriteTxn
@@ -144,10 +144,20 @@ def post_verdict(
     draft_id = str(run.get("draft_id", ""))
     if not draft_id:
         raise HTTPException(status_code=422, detail="run без draft_id")
-    space = str(run.get("space", DEFAULT_SPACE))
     repo = _repo()
     expected = None if body.expected_head == "genesis" else body.expected_head.encode("utf-8")
     payload = {**body.model_dump(), "run_id": run_id, "draft_id": draft_id}
+
+    provenance = [
+        {
+            "path": str(claim.get("path", "")),
+            "text": str(claim.get("text", "")),
+            "source_ref": str(claim.get("source_ref", "")),
+            "quote_hash": hashlib.sha256(str(claim.get("quote", "")).encode("utf-8")).hexdigest(),
+            "byte_range": claim.get("byte_range"),
+        }
+        for claim in run.get("claims", [])
+    ]
 
     def handler(txn: WriteTxn) -> tuple[int, dict[str, Any]]:
         cs_id = repo.changesets.publish_draft_in_txn(
@@ -158,17 +168,8 @@ def post_verdict(
             author=body.author,
             approver=body.author,
             run_id=run_id,
-        )
-        append_in_txn(
-            txn,
-            {
-                "event": "hitl_publish",
-                "run_id": run_id,
-                "changeset_id": cs_id,
-                "draft_id": draft_id,
-                "space": space,
-                "approver": body.author,
-            },
+            provenance=provenance,
+            source="hitl",
         )
         return 200, {"changeset_id": cs_id, "run_id": run_id, "status": "published"}
 

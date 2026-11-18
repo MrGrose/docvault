@@ -62,6 +62,7 @@ class Repository:
         approver: str | None = None,
         run_id: str | None = None,
         provenance: list[dict[str, Any]] | None = None,
+        source: str = "api",
     ) -> str:
         return self.changesets.publish_draft(
             draft_id,
@@ -71,6 +72,7 @@ class Repository:
             approver=approver,
             run_id=run_id,
             provenance=provenance,
+            source=source,
         )
 
     def tree_at(self, ref: str | bytes) -> dict[str, str]:
