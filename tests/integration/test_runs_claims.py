@@ -28,7 +28,14 @@ def test_run_grounds_claim_bound_to_changed_fragment(api: Any) -> None:
         },
     )
     assert created.status_code == 200, created.text
-    assert created.json()["status"] == "grounded"
+    body = created.json()
+    assert body["status"] == "grounded"
+    run = api.client.get(f"/runs/{body['id']}").json()
+    assert run["human_review_required"] is True
+    assert run["expected_head"] == "genesis"
+    assert "docs/pricing.md" in run["documents"]
+    assert run["documents"]["docs/pricing.md"]["new"].startswith("# pricing")
+    assert any(line.startswith("+") for line in run["diff"]["docs/pricing.md"])
 
 
 def test_run_rejects_claim_path_outside_changes(api: Any) -> None:

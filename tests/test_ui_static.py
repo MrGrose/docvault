@@ -22,9 +22,9 @@ def test_ui_static_bundle_served() -> None:
     client = TestClient(create_app())
     for path, needle in (
         ("/ui/", "styles.css"),
-        ("/ui/index.html", "app.js"),
+        ("/ui/index.html", "human-note"),
         ("/ui/styles.css", ":root"),
-        ("/ui/app.js", "verdict"),
+        ("/ui/app.js", "renderDiff"),
     ):
         res = client.get(path)
         assert res.status_code == 200, path
@@ -70,3 +70,13 @@ def test_ui_hitl_api_matches_frontend_contract(api_client: TestClient) -> None:
         headers={"Idempotency-Key": f"hitl-{run_id}-reject"},
     )
     assert verdict.status_code == 200
+
+
+def test_ui_exposes_diff_and_human_warning() -> None:
+    client = TestClient(create_app())
+    html = client.get("/ui/index.html").text
+    script = client.get("/ui/app.js").text
+    assert 'id="diff"' in html
+    assert "Смысловую корректность" in html
+    assert "documents" in script
+    assert "expected_head" in script

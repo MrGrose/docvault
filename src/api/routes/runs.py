@@ -1,3 +1,4 @@
+import difflib
 import hashlib
 from typing import Any
 
@@ -110,12 +111,50 @@ def create_run(body: CreateRunBody) -> dict[str, Any]:
     return {"id": run_id, "status": status, "draft_id": body.draft_id}
 
 
+MAX_DOC_CHARS = 200_000
+
+
+def _run_view(repo: Repository, run: dict[str, Any]) -> dict[str, Any]:
+    view = dict(run)
+    view["human_review_required"] = True
+    draft_id = str(run.get("draft_id", ""))
+    if not draft_id:
+        return view
+    try:
+        draft = repo.drafts.get(draft_id)
+    except KeyError:
+        return view
+    documents: dict[str, Any] = {}
+    diff: dict[str, list[str]] = {}
+    for path, (old, new) in _draft_documents(repo, draft).items():
+        documents[path] = {
+            "old": old[:MAX_DOC_CHARS],
+            "new": new[:MAX_DOC_CHARS],
+            "truncated": len(old) > MAX_DOC_CHARS or len(new) > MAX_DOC_CHARS,
+        }
+        diff[path] = list(
+            difflib.unified_diff(
+                old.splitlines(),
+                new.splitlines(),
+                fromfile=f"{path} (base)",
+                tofile=f"{path} (draft)",
+                lineterm="",
+            )
+        )
+    view["draft_id"] = draft_id
+    view["expected_head"] = draft.get("base_head") or "genesis"
+    view["documents"] = documents
+    view["diff"] = diff
+    return view
+
+
 @router.get("/{run_id}")
 def get_run(run_id: str) -> dict[str, Any]:
     try:
-        return _runs().get(run_id)
+        run = _runs().get(run_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _run_view(_repo(), run)
 
 
 @router.post("/{run_id}/verdicts")
