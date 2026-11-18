@@ -216,16 +216,19 @@ def post_verdict(
     if idempotency_key is None:
         raise HTTPException(status_code=422, detail="Idempotency-Key обязателен")
 
-    run = _runs().get(run_id)
+    try:
+        run = _runs().get(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     if run.get("status") == "blocked":
         raise UngroundedError("run blocked, вердикт невозможен")
+
+    if body.verdict not in {"accept", "reject"}:
+        raise HTTPException(status_code=422, detail="verdict: accept|reject")
 
     if body.verdict == "reject":
         updated = _runs().update(run_id, {"status": "rejected", "verdict": "reject"})
         return {"id": run_id, "status": updated["status"]}
-
-    if body.verdict != "accept":
-        raise HTTPException(status_code=422, detail="verdict: accept|reject")
 
     if body.expected_head is None:
         raise HTTPException(status_code=422, detail="expected_head обязателен")

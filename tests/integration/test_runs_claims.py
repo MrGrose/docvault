@@ -214,3 +214,23 @@ def test_run_candidates_lists_changed_paragraphs(api: Any) -> None:
     assert "Второе." in texts
     assert all(item["change_kind"] == "add" for item in items)
     assert api.client.get("/runs/missing/candidates").status_code == 404
+
+
+def test_verdict_unknown_run_is_404(api: Any) -> None:
+    response = api.client.post(
+        "/runs/missing/verdicts",
+        json={"verdict": "accept", "expected_head": "genesis"},
+        headers={"Idempotency-Key": "missing-verdict"},
+    )
+    assert response.status_code == 404
+
+
+def test_verdict_rejects_unknown_value(api: Any) -> None:
+    draft = api.draft()
+    run = api.client.post("/runs", json={"draft_id": draft["id"], "claims": []}).json()
+    response = api.client.post(
+        f"/runs/{run['id']}/verdicts",
+        json={"verdict": "maybe"},
+        headers={"Idempotency-Key": "bad-verdict"},
+    )
+    assert response.status_code == 422

@@ -35,3 +35,24 @@ jobs:
           python-version: "3.13"
       - run: uv sync --group dev
       - run: RUN_FAULT_TESTS=1 uv run pytest tests/fault/ -v
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      - run: uv sync --group dev
+      - name: Fuzz API
+        env:
+          DOCVAULT_REPO: ${{ github.workspace }}/data/fuzz
+          DOCVAULT_CAPABILITY_SECRET: fuzz-secret
+        run: |
+          uv run uvicorn main:app --app-dir src --port 8000 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/health && break
+            sleep 1
+          done
+          uv run --with schemathesis schemathesis run http://127.0.0.1:8000/openapi.json --max-examples 20 --checks not_a_server_error

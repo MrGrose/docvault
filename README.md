@@ -72,12 +72,12 @@ make demo-hitol
 
 | Проверка | Результат |
 |----------|-----------|
-| `uv run pytest` | 178 тестов проходят, 1 скипается (fault-тест требует Docker) |
+| `uv run pytest` | 182 теста проходят, 1 скипается (fault-тест требует Docker) |
 | `uv run pytest --cov=src` | покрытие 91% по `src` |
 | `uv run ruff check .` и `uv run mypy src` | без замечаний, mypy в strict-режиме |
 | Локальность CDC | вставка одного байта в файл 96 КБ меняет 1 чанк из 27 |
 | Конкурентность | симуляция 100 черновиков с rebase: 100 changesets, ни один файл не потерян |
-| CI | ruff, формат, mypy, pytest с порогом покрытия, pip-audit, bandit; fault-тест отдельным job в Docker |
+| CI | ruff, формат, mypy, pytest с порогом покрытия, pip-audit, bandit, schemathesis; fault-тест отдельным job в Docker |
 
 Числа получены на локальной машине (8 ядер), воспроизводятся командами из раздела Development.
 
@@ -164,6 +164,8 @@ curl -s "$BASE/audit?limit=20"
 
 Коды ответов: `201` черновик создан, `200` запись, публикация или вердикт, `409` конфликт CAS, `rebase_required`, `idempotency_mismatch` или закрытый черновик, `422` ошибка валидации, неподтвержденная цитата, отсутствующий `Idempotency-Key` или `expected_head`, `403` чужой черновик.
 
+Контракт API лежит в [`openapi.json`](openapi.json), схема включает `BearerAuth`. `/docs` показывает ту же схему в браузере.
+
 ## Ограничения
 
 - Одна нода и один процесс: LMDB, размер карты задается `DOCVAULT_MAP_SIZE` при открытии, на лету не растет.
@@ -187,6 +189,7 @@ uv run --with pip-audit pip-audit  # известные уязвимости з�
 make test          # pytest (unit + integration + BDD)
 make bench         # бенчмарк CDC: три сценария правки
 make bench-writers # 1000 публикаций, 8 воркеров, конфликты и время
+uv run --with schemathesis schemathesis run http://127.0.0.1:8000/openapi.json --checks not_a_server_error
 uv run pytest tests/bdd/ -q
 uv run pytest --cov=src --cov-report=term-missing tests/
 ```
