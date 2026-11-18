@@ -154,3 +154,11 @@ def test_cli_explicit_draft_and_missing_draft(
     capsys.readouterr()
     assert main(["--path", str(repo), "write", "docs/x.md", str(src), "--draft", "missing"]) == 1
     assert "draft не найден" in capsys.readouterr().err
+
+
+def test_cli_purge_idempotency(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = tmp_path / "repo"
+    assert main(["--path", str(repo), "init"]) == 0
+    capsys.readouterr()
+    assert main(["--path", str(repo), "idem-purge"]) == 0
+    assert "удалено ключей: 0" in capsys.readouterr().out

@@ -72,7 +72,7 @@ make demo-hitol
 
 | Проверка | Результат |
 |----------|-----------|
-| `uv run pytest` | 183 теста проходят, 1 скипается (fault-тест требует Docker) |
+| `uv run pytest` | 184 теста проходят, 1 скипается (fault-тест требует Docker) |
 | `uv run pytest --cov=src` | покрытие 91% по `src` |
 | `uv run ruff check .` и `uv run mypy src` | без замечаний, mypy в strict-режиме |
 | Локальность CDC | вставка одного байта в файл 96 КБ меняет 1 чанк из 27 |
@@ -190,6 +190,7 @@ make test          # pytest (unit + integration + BDD)
 make bench         # бенчмарк CDC: три сценария правки
 make bench-writers # 1000 публикаций, 8 воркеров, конфликты и время
 uv run --with schemathesis schemathesis run http://127.0.0.1:8000/openapi.json --checks all --exclude-checks allow_header_conformance
+uv run python -m cli.dv --path ./data/repo idem-purge
 uv run pytest tests/bdd/ -q
 uv run pytest --cov=src --cov-report=term-missing tests/
 ```

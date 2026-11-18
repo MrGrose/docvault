@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from core.errors import ConflictError
+from core.idempotency.store import IdempotencyStore
 from core.keys import DEFAULT_OWNER, DEFAULT_SPACE
 from core.repo import Repository
 
@@ -189,6 +190,16 @@ def cmd_checkout(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_idem_purge(args: argparse.Namespace) -> int:
+    repo = Repository.open(_repo_path(args.path))
+    try:
+        removed = IdempotencyStore(repo.kv).purge_expired()
+    finally:
+        repo.close()
+    print(f"удалено ключей: {removed}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dv")
     parser.add_argument("--path", default=".", help="путь к репозиторию")
@@ -214,6 +225,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     checkout_p = sub.add_parser("checkout", help="восстановить дерево по ref")
     checkout_p.add_argument("ref", nargs="?", default=None)
+
+    sub.add_parser("idem-purge", help="удалить истекшие ключи идемпотентности")
     return parser
 
 
@@ -226,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
         "log": cmd_log,
         "diff": cmd_diff,
         "checkout": cmd_checkout,
+        "idem-purge": cmd_idem_purge,
     }
     return handlers[args.command](args)
 
