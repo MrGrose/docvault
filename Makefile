@@ -28,3 +28,6 @@ bench:
 
 bench-writers:
 	uv run python scripts/bench_writers.py --writers 1000 --workers 8
+
+preflight:
+	./scripts/preflight.sh

@@ -184,6 +184,7 @@ curl -s "$BASE/audit?limit=20"
 ## Development
 
 ```bash
+make preflight     # линтеры, тесты, покрытие, pip-audit, bandit, fault и fuzz
 make lint          # ruff + mypy src
 uv run --with pip-audit pip-audit  # известные уязвимости зависимостей
 make test          # pytest (unit + integration + BDD)
