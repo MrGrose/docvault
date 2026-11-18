@@ -1,15 +1,68 @@
 import argparse
+import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from core.errors import ConflictError
 from core.keys import DEFAULT_OWNER, DEFAULT_SPACE
 from core.repo import Repository
-from core.store import commit_changeset, parse_expect_head
+
+STATE_NAME = ".docvault-draft"
 
 
 def _repo_path(raw: str | None) -> Path:
     return Path(raw or ".").resolve()
+
+
+def _state_path(repo: Repository) -> Path:
+    return repo.root / STATE_NAME
+
+
+def _actor() -> str:
+    return os.environ.get("DOCVAULT_ACTOR", DEFAULT_OWNER)
+
+
+def _read_state(repo: Repository) -> str | None:
+    path = _state_path(repo)
+    if not path.exists():
+        return None
+    value = path.read_text(encoding="utf-8").strip()
+    return value or None
+
+
+def _write_state(repo: Repository, draft_id: str) -> None:
+    _state_path(repo).write_text(draft_id + "\n", encoding="utf-8")
+
+
+def _clear_state(repo: Repository) -> None:
+    path = _state_path(repo)
+    if path.exists():
+        path.unlink()
+
+
+def _load_draft(
+    repo: Repository,
+    draft_id: str | None,
+    create: bool = False,
+) -> dict[str, Any] | None:
+    state_id = draft_id or _read_state(repo)
+    if state_id is None:
+        if not create:
+            return None
+        head = repo.pointers.head(DEFAULT_SPACE)
+        draft = repo.drafts.create(DEFAULT_SPACE, _actor(), head)
+        _write_state(repo, str(draft["id"]))
+        return draft
+
+    try:
+        draft = repo.drafts.get(state_id)
+    except KeyError:
+        print(f"draft не найден: {state_id}", file=sys.stderr)
+        return None
+    if draft_id:
+        _write_state(repo, state_id)
+    return draft
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -22,11 +75,16 @@ def cmd_init(args: argparse.Namespace) -> int:
 def cmd_write(args: argparse.Namespace) -> int:
     repo = Repository.open(_repo_path(args.path))
     try:
+        draft = _load_draft(repo, args.draft, create=True)
+        if draft is None:
+            return 1
+        if draft.get("status") != "open":
+            print(f"draft не открыт: {draft.get('status')}", file=sys.stderr)
+            return 1
         src = Path(args.file)
         data = src.read_bytes()
-        blob_hash = repo.blobs.put(data)
-        repo.work.set_path(DEFAULT_SPACE, args.doc_path, blob_hash)
-        print(f"записан {args.doc_path} ({len(data)} байт)")
+        repo.write_draft(str(draft["id"]), args.doc_path, data.decode("utf-8"), _actor())
+        print(f"записан {args.doc_path} ({len(data)} байт), draft {str(draft['id'])[:8]}")
     finally:
         repo.close()
     return 0
@@ -35,14 +93,27 @@ def cmd_write(args: argparse.Namespace) -> int:
 def cmd_commit(args: argparse.Namespace) -> int:
     repo = Repository.open(_repo_path(args.path))
     try:
-        expected = parse_expect_head(args.expect_head)
-        cs_id = commit_changeset(
-            repo,
-            DEFAULT_SPACE,
-            message=args.message,
-            author=args.author or DEFAULT_OWNER,
+        draft = _load_draft(repo, args.draft)
+        if draft is None:
+            print("нет активного draft", file=sys.stderr)
+            return 1
+        if draft.get("status") != "open":
+            print(f"draft не открыт: {draft.get('status')}", file=sys.stderr)
+            return 1
+        base_head = draft.get("base_head")
+        if args.expect_head is None:
+            expected = base_head.encode() if base_head else None
+        elif args.expect_head == "genesis":
+            expected = None
+        else:
+            expected = args.expect_head.encode()
+        cs_id = repo.publish_draft(
+            str(draft["id"]),
             expected_head=expected,
+            message=args.message,
+            author=args.author,
         )
+        _clear_state(repo)
         print(cs_id)
     except ConflictError as exc:
         print(str(exc), file=sys.stderr)
@@ -65,19 +136,22 @@ def cmd_log(args: argparse.Namespace) -> int:
 def cmd_diff(args: argparse.Namespace) -> int:
     repo = Repository.open(_repo_path(args.path))
     try:
+        draft = _load_draft(repo, args.draft)
+        paths: dict[str, str] = {}
+        if draft is not None and draft.get("status") == "open":
+            paths = dict(draft.get("paths") or {})
         head = repo.pointers.head(DEFAULT_SPACE)
-        work = repo.work.read(DEFAULT_SPACE)
         if head is None:
-            for path in sorted(work):
+            for path in sorted(paths):
                 print(f"+ {path}")
             return 0
         cs = repo.changesets.get(head.decode())
         tree = repo.blobs.read_tree(cs["tree_hash"])
-        if not work:
+        if not paths:
             print("нет локальных изменений")
             return 0
         merged = dict(tree)
-        merged.update(work)
+        merged.update(paths)
         new_tree = repo.blobs.put_tree(merged)
         for entry in repo.blobs.diff_trees(cs["tree_hash"], new_tree):
             before = entry.get("before")
@@ -101,14 +175,13 @@ def cmd_checkout(args: argparse.Namespace) -> int:
         if ref is None:
             print("нет head для checkout", file=sys.stderr)
             return 1
-        cs = repo.changesets.get(ref)
-        tree = repo.blobs.read_tree(cs["tree_hash"])
+        tree = repo.tree_at(ref)
         out_root = _repo_path(args.path)
         for path, blob_hash in tree.items():
             dest = out_root / path
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(repo.blobs.read(blob_hash))
-        repo.work.write(DEFAULT_SPACE, dict(tree))
+        _clear_state(repo)
         print(f"checkout {ref[:8]} ({len(tree)} файлов)")
     finally:
         repo.close()
@@ -125,15 +198,18 @@ def build_parser() -> argparse.ArgumentParser:
     write_p = sub.add_parser("write", help="добавить файл в черновик")
     write_p.add_argument("doc_path", help="путь документа в хранилище")
     write_p.add_argument("file", help="локальный файл с содержимым")
+    write_p.add_argument("--draft", default=None)
 
-    commit_p = sub.add_parser("commit", help="закоммитить черновик")
+    commit_p = sub.add_parser("commit", help="опубликовать черновик")
     commit_p.add_argument("-m", "--message", required=True)
     commit_p.add_argument("--author", default=DEFAULT_OWNER)
     commit_p.add_argument("--expect-head", dest="expect_head", default=None)
+    commit_p.add_argument("--draft", default=None)
 
     sub.add_parser("log", help="история changesets")
 
-    sub.add_parser("diff", help="diff head vs черновик")
+    diff_p = sub.add_parser("diff", help="diff head vs черновик")
+    diff_p.add_argument("--draft", default=None)
 
     checkout_p = sub.add_parser("checkout", help="восстановить дерево по ref")
     checkout_p.add_argument("ref", nargs="?", default=None)

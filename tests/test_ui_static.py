@@ -36,9 +36,19 @@ def test_ui_hitl_api_matches_frontend_contract(api_client: TestClient) -> None:
     blob_hash = repo.blobs.put(b"sample")
     source_ref = f"blob:{blob_hash}"
 
+    draft_resp = api_client.post("/changesets", json={"space": "default"})
+    assert draft_resp.status_code == 201
+    draft_id = draft_resp.json()["id"]
+    written = api_client.put(
+        f"/changesets/{draft_id}/doc/docs/ui.md",
+        json={"content": "# ui\n"},
+        headers={"Idempotency-Key": "ui-w1"},
+    )
+    assert written.status_code == 200
     created = api_client.post(
         "/runs",
         json={
+            "draft_id": draft_id,
             "claims": [
                 {
                     "text": "sample claim",
@@ -46,7 +56,6 @@ def test_ui_hitl_api_matches_frontend_contract(api_client: TestClient) -> None:
                     "source_ref": source_ref,
                 }
             ],
-            "write": {"path": "docs/ui.md", "content": "# ui\n"},
         },
     )
     assert created.status_code == 200

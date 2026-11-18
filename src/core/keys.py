@@ -2,12 +2,8 @@ def head_key(space: str) -> bytes:
     return f"head:{space}".encode()
 
 
-def draft_key(space: str, owner: str) -> bytes:
-    return f"draft:{space}:{owner}".encode()
-
-
-def work_key(space: str) -> bytes:
-    return f"work:{space}".encode()
+def draft_key(draft_id: str) -> bytes:
+    return f"draft:{draft_id}".encode()
 
 
 def cs_key(cs_id: str) -> bytes:

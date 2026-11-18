@@ -6,7 +6,7 @@ class IdempotencyMismatchError(Exception):
     pass
 
 
-class RebaseRequiredError(Exception):
+class RebaseRequiredError(ConflictError):
     pass
 
 

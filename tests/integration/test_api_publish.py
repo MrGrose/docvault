@@ -1,70 +1,80 @@
-from pathlib import Path
-
-import pytest
-from fastapi.testclient import TestClient
-
-from api.app import create_app
-from api.deps import get_repository
-from core.repo import Repository
+from typing import Any
 
 
-@pytest.fixture()
-def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("DOCVAULT_REPO", str(tmp_path / "repo"))
-    get_repository.cache_clear()
-    Repository.init(tmp_path / "repo")
-    return TestClient(create_app())
-
-
-def test_publish_empty_draft_returns_clear_conflict(api_client: TestClient) -> None:
-    response = api_client.post(
-        "/changesets/default/publish",
-        json={"message": "empty", "author": "user:host"},
-        headers={"Idempotency-Key": "empty-1"},
-    )
+def test_publish_empty_draft_returns_clear_conflict(api: Any) -> None:
+    draft = api.draft()
+    response = api.publish(draft["id"], None, "empty-1", "empty")
     assert response.status_code == 409
     assert response.json() == {"error": "conflict", "detail": "нет изменений для коммита"}
 
 
-def test_publish_rebase_required_on_stale_head(api_client: TestClient) -> None:
-    space = "default"
-    api_client.put(
-        f"/changesets/{space}/doc/a.md",
-        json={"content": "v1"},
-        headers={"Idempotency-Key": "w1"},
-    )
-    first = api_client.post(
-        f"/changesets/{space}/publish",
-        json={"message": "m1", "author": "user:host"},
-        headers={"Idempotency-Key": "p1"},
-    )
-    head = first.json()["changeset_id"]
+def test_publish_requires_matching_base_head(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/a.md", "v1", "w1")
+    response = api.publish(draft["id"], "0" * 32, "p1")
+    assert response.status_code == 409
+    assert "base_head" in response.json()["detail"]
 
-    api_client.put(
-        f"/changesets/{space}/doc/b.md",
-        json={"content": "v2"},
-        headers={"Idempotency-Key": "w2"},
-    )
-    stale = api_client.post(
-        f"/changesets/{space}/publish",
-        json={
-            "message": "m2",
-            "author": "user:host",
-            "expected_head": "0" * 32,
-        },
-        headers={"Idempotency-Key": "p2"},
-    )
+
+def test_publish_stale_draft_requires_rebase(api: Any) -> None:
+    first = api.draft()
+    api.write_ok(first["id"], "docs/a.md", "v1", "w1")
+    head = api.publish_ok(first["id"], None, "p1", "first")
+
+    mine = api.draft()
+    api.write_ok(mine["id"], "docs/b.md", "v2", "w2")
+
+    other = api.draft()
+    api.write_ok(other["id"], "docs/c.md", "v3", "w3")
+    api.publish_ok(other["id"], head, "p3", "other")
+
+    stale = api.publish(mine["id"], head, "p2", "stale")
     assert stale.status_code == 409
     assert stale.json()["error"] == "rebase_required"
 
-    api_client.put(
-        f"/changesets/{space}/doc/c.md",
-        json={"content": "v3"},
-        headers={"Idempotency-Key": "w3"},
+    rebased = api.client.post(
+        f"/changesets/{mine['id']}/rebase",
+        headers={"Idempotency-Key": "r1"},
     )
-    ok = api_client.post(
-        f"/changesets/{space}/publish",
-        json={"message": "m3", "author": "user:host", "expected_head": head},
-        headers={"Idempotency-Key": "p3"},
-    )
+    assert rebased.status_code == 201
+    new_draft = rebased.json()["draft"]
+    assert new_draft["parent_draft"] == mine["id"]
+
+    head_now = api.client.get("/docs/tree", params={"space": "default"}).json()["head"]
+    ok = api.publish(new_draft["id"], head_now, "p4", "after rebase")
     assert ok.status_code == 200
+
+
+def test_create_draft_returns_base_head(api: Any) -> None:
+    draft = api.draft()
+    assert draft["base_head"] is None
+    assert draft["space"] == "default"
+    fetched = api.client.get(f"/changesets/{draft['id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["id"] == draft["id"]
+
+
+def test_write_to_foreign_draft_is_rejected(api: Any) -> None:
+    draft = api.draft(owner="user:other")
+    response = api.write(draft["id"], "docs/a.md", "x", "w-foreign")
+    assert response.status_code == 403
+    assert response.json()["error"] == "authz"
+
+
+def test_work_key_is_not_used(api: Any) -> None:
+    from api.deps import get_repository
+
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/a.md", "v1", "w-nokey")
+    api.publish_ok(draft["id"], None, "p-nokey")
+    assert get_repository().kv.get(b"work:default") is None
+
+
+def test_write_doc_requires_idempotency_key(api: Any) -> None:
+    draft = api.draft()
+    response = api.client.put(
+        f"/changesets/{draft['id']}/doc/docs/a.md",
+        json={"content": "x"},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Idempotency-Key обязателен"

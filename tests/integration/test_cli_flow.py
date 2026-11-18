@@ -69,7 +69,33 @@ def test_cli_commit_conflict_returns_two(
 
     code = main(["--path", str(repo), "commit", "-m", "stale", "--expect-head", "deadbeef"])
     assert code == 2
-    assert "head изменился" in capsys.readouterr().err
+    assert "base_head" in capsys.readouterr().err
+
+
+def test_cli_commit_without_active_draft_returns_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    assert main(["--path", str(repo), "init"]) == 0
+    capsys.readouterr()
+    assert main(["--path", str(repo), "commit", "-m", "nothing"]) == 1
+    assert "нет активного draft" in capsys.readouterr().err
+
+
+def test_cli_write_to_published_draft_returns_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    assert main(["--path", str(repo), "init"]) == 0
+    src = _write_source(tmp_path, "x")
+    assert main(["--path", str(repo), "write", "docs/a.md", str(src)]) == 0
+    draft_id = (repo / ".docvault-draft").read_text(encoding="utf-8").strip()
+    capsys.readouterr()
+    assert main(["--path", str(repo), "commit", "-m", "first"]) == 0
+    capsys.readouterr()
+    (repo / ".docvault-draft").write_text(draft_id + "\n", encoding="utf-8")
+    assert main(["--path", str(repo), "write", "docs/b.md", str(src)]) == 1
+    assert "draft не открыт" in capsys.readouterr().err
 
 
 def test_cli_checkout_without_head_returns_one(

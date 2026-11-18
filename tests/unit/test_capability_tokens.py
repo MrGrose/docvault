@@ -12,21 +12,39 @@ def secret(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_issue_and_verify() -> None:
-    token = issue_token(space="default", path_prefixes=["docs/"], ops=["write_doc"], ttl_seconds=60)
+    token = issue_token(
+        space="default",
+        path_prefixes=["docs/"],
+        ops=["write_doc"],
+        draft_id="draft-1",
+        ttl_seconds=60,
+    )
     claims = verify_token(token)
     assert claims.space == "default"
     assert "write_doc" in claims.ops
+    assert claims.draft_id == "draft-1"
 
 
 def test_expired_token() -> None:
-    token = issue_token(space="default", path_prefixes=["docs/"], ops=["write_doc"], ttl_seconds=1)
+    token = issue_token(
+        space="default",
+        path_prefixes=["docs/"],
+        ops=["write_doc"],
+        draft_id="draft-1",
+        ttl_seconds=1,
+    )
     time.sleep(1.1)
-    with pytest.raises(AuthzError, match="истёк"):
+    with pytest.raises(AuthzError, match="истек"):
         verify_token(token)
 
 
 def test_tampered_token() -> None:
-    token = issue_token(space="default", path_prefixes=["docs/"], ops=["write_doc"])
+    token = issue_token(
+        space="default",
+        path_prefixes=["docs/"],
+        ops=["write_doc"],
+        draft_id="draft-1",
+    )
     bad = token[:-1] + ("a" if token[-1] != "a" else "b")
     with pytest.raises(AuthzError):
         verify_token(bad)

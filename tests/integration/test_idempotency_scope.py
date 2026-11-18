@@ -1,55 +1,36 @@
-from pathlib import Path
-
-import pytest
-from fastapi.testclient import TestClient
-
-from api.app import create_app
-from api.deps import get_repository
-from core.repo import Repository
+from typing import Any
 
 
-@pytest.fixture()
-def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("DOCVAULT_REPO", str(tmp_path / "repo"))
-    get_repository.cache_clear()
-    Repository.init(tmp_path / "repo")
-    return TestClient(create_app())
-
-
-def test_same_key_different_routes_no_reuse(api_client: TestClient) -> None:
-    space = "default"
+def test_same_key_different_routes_no_reuse(api: Any) -> None:
+    draft = api.draft()
     key = "shared-key"
-    w = api_client.put(
-        f"/changesets/{space}/doc/a.md",
+    written = api.client.put(
+        f"/changesets/{draft['id']}/doc/a.md",
         json={"content": "a"},
         headers={"Idempotency-Key": key},
     )
-    assert w.status_code == 200
-    p = api_client.post(
-        f"/changesets/{space}/publish",
-        json={"message": "m", "author": "user:host"},
+    assert written.status_code == 200, written.text
+    published = api.client.post(
+        f"/changesets/{draft['id']}/publish",
+        json={"message": "m", "author": "user:host", "expected_head": "genesis"},
         headers={"Idempotency-Key": key},
     )
-    assert p.status_code == 200
+    assert published.status_code == 200, published.text
 
 
-def test_same_key_different_fingerprint_mismatch(api_client: TestClient) -> None:
-    space = "default"
+def test_same_key_different_fingerprint_mismatch(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "x.md", "1", "w-x")
     headers = {"Idempotency-Key": "pub-x"}
-    api_client.put(
-        f"/changesets/{space}/doc/x.md",
-        json={"content": "1"},
-        headers={"Idempotency-Key": "w-x"},
-    )
-    first = api_client.post(
-        f"/changesets/{space}/publish",
-        json={"message": "one", "author": "user:host"},
+    first = api.client.post(
+        f"/changesets/{draft['id']}/publish",
+        json={"message": "one", "author": "user:host", "expected_head": "genesis"},
         headers=headers,
     )
-    assert first.status_code == 200
-    second = api_client.post(
-        f"/changesets/{space}/publish",
-        json={"message": "two", "author": "user:host"},
+    assert first.status_code == 200, first.text
+    second = api.client.post(
+        f"/changesets/{draft['id']}/publish",
+        json={"message": "two", "author": "user:host", "expected_head": "genesis"},
         headers=headers,
     )
     assert second.status_code == 409

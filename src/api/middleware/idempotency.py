@@ -15,7 +15,7 @@ def run_idempotent(
     client_key: str,
     payload: dict[str, Any],
     handler: Callable[[WriteTxn], tuple[int, dict[str, Any]]],
-) -> dict[str, Any]:
+) -> tuple[int, dict[str, Any]]:
     scope_id = build_scope_id(
         method=method,
         route_template=route_template,
@@ -25,6 +25,4 @@ def run_idempotent(
     )
     fingerprint = fingerprint_json(payload)
     status, body, _replayed = idem.execute(scope_id, fingerprint, handler)
-    if status != 200:
-        return body
-    return body
+    return status, body

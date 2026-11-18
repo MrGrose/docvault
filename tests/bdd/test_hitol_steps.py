@@ -30,6 +30,26 @@ def empty_repository(bdd_env: TestClient) -> TestClient:
     return bdd_env
 
 
+def _ensure_draft() -> str:
+    client = CONTEXT["client"]
+    assert isinstance(client, TestClient)
+    draft_id = str(CONTEXT.get("draft_id", ""))
+    if draft_id:
+        return draft_id
+    created = client.post("/changesets", json={"space": "default"})
+    assert created.status_code == 201
+    draft = created.json()
+    CONTEXT["draft_id"] = draft["id"]
+    CONTEXT["base_head"] = draft["base_head"] or "genesis"
+    written = client.put(
+        f"/changesets/{draft['id']}/doc/docs/t.md",
+        json={"content": "published"},
+        headers={"Idempotency-Key": "bdd-write"},
+    )
+    assert written.status_code == 200
+    return str(draft["id"])
+
+
 @given(parsers.parse('a source blob "{text}" as ref'))
 def source_blob(text: str) -> None:
     repo = get_repository()
@@ -49,7 +69,7 @@ def create_run_bad_quote(quote: str) -> None:
                 "source_ref": CONTEXT["source_ref"],
             }
         ],
-        "write": {"path": "docs/t.md", "content": "x"},
+        "draft_id": _ensure_draft(),
     }
     CONTEXT["response"] = client.post("/runs", json=body)
 
@@ -66,7 +86,7 @@ def create_run_weak() -> None:
                 "source_ref": CONTEXT["source_ref"],
             }
         ],
-        "write": {"path": "docs/t.md", "content": "published"},
+        "draft_id": _ensure_draft(),
     }
     resp = client.post("/runs", json=body)
     CONTEXT["response"] = resp
@@ -80,7 +100,7 @@ def accept_run(key: str) -> None:
     run_id = str(CONTEXT["run_id"])
     CONTEXT["verdict"] = client.post(
         f"/runs/{run_id}/verdicts",
-        json={"verdict": "accept"},
+        json={"verdict": "accept", "expected_head": CONTEXT.get("base_head", "genesis")},
         headers={"Idempotency-Key": key},
     )
 

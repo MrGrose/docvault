@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from agent.claims import Claim
@@ -8,7 +8,7 @@ from agent.stages.validate import aggregate_status, validate_claims
 from api.deps import get_idempotency, get_repository
 from api.middleware.idempotency import run_idempotent
 from core.audit.log import append_in_txn
-from core.errors import ConflictError, RebaseRequiredError, UngroundedError
+from core.errors import UngroundedError
 from core.keys import DEFAULT_OWNER, DEFAULT_SPACE
 from core.kv import WriteTxn
 from core.repo import Repository
@@ -23,15 +23,10 @@ class ClaimModel(BaseModel):
     source_ref: str
 
 
-class WritePatch(BaseModel):
-    path: str
-    content: str
-
-
 class CreateRunBody(BaseModel):
     space: str = Field(default=DEFAULT_SPACE)
+    draft_id: str
     claims: list[ClaimModel]
-    write: WritePatch | None = None
 
 
 class VerdictBody(BaseModel):
@@ -52,6 +47,13 @@ def _runs() -> RunStore:
 @router.post("")
 def create_run(body: CreateRunBody) -> dict[str, Any]:
     repo = _repo()
+    try:
+        draft = repo.drafts.get(body.draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if draft.get("status") != "open":
+        raise HTTPException(status_code=409, detail="draft не открыт")
+
     claims = [Claim(c.text, c.quote, c.source_ref) for c in body.claims]
     results = validate_claims(claims, repo.blobs)
     status = aggregate_status(results)
@@ -64,16 +66,16 @@ def create_run(body: CreateRunBody) -> dict[str, Any]:
     run_id = _runs().create(
         {
             "space": body.space,
+            "draft_id": body.draft_id,
+            "base_head": draft.get("base_head"),
             "status": status,
             "claims": [c.__dict__ for c in claims],
             "validations": [r.__dict__ for r in results],
-            "write": body.write.model_dump() if body.write else None,
             "verdict": None,
             "changeset_id": None,
         }
     )
-    code = 200 if status == "ok" else 202
-    return {"id": run_id, "status": status, "http_hint": code}
+    return {"id": run_id, "status": status, "draft_id": body.draft_id}
 
 
 @router.get("/{run_id}")
@@ -88,6 +90,7 @@ def get_run(run_id: str) -> dict[str, Any]:
 def post_verdict(
     run_id: str,
     body: VerdictBody,
+    response: Response,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if idempotency_key is None:
@@ -95,7 +98,7 @@ def post_verdict(
 
     run = _runs().get(run_id)
     if run.get("status") == "blocked":
-        raise UngroundedError("run blocked — вердикт невозможен")
+        raise UngroundedError("run blocked, вердикт невозможен")
 
     if body.verdict == "reject":
         updated = _runs().update(run_id, {"status": "rejected", "verdict": "reject"})
@@ -104,44 +107,40 @@ def post_verdict(
     if body.verdict != "accept":
         raise HTTPException(status_code=422, detail="verdict: accept|reject")
 
-    write = run.get("write")
-    if not isinstance(write, dict):
-        raise HTTPException(status_code=422, detail="run без write payload")
-
+    if body.expected_head is None:
+        raise HTTPException(status_code=422, detail="expected_head обязателен")
+    draft_id = str(run.get("draft_id", ""))
+    if not draft_id:
+        raise HTTPException(status_code=422, detail="run без draft_id")
     space = str(run.get("space", DEFAULT_SPACE))
     repo = _repo()
-    expected = body.expected_head.encode() if body.expected_head else repo.pointers.head(space)
-    payload = {**body.model_dump(), "run_id": run_id, "write": write}
-
-    path = str(write["path"])
-    content = str(write["content"])
+    expected = None if body.expected_head == "genesis" else body.expected_head.encode("utf-8")
+    payload = {**body.model_dump(), "run_id": run_id, "draft_id": draft_id}
 
     def handler(txn: WriteTxn) -> tuple[int, dict[str, Any]]:
-        blob_hash = repo.blobs.put_in_txn(txn, content.encode("utf-8"))
-        repo.work.set_path_in_txn(txn, space, path, blob_hash)
-        try:
-            cs_id = repo.changesets.commit_working_copy_in_txn(
-                txn,
-                space,
-                message=body.message,
-                author=body.author,
-                expected_head=expected,
-            )
-        except ConflictError as exc:
-            hint = repo.changesets.rebase_hint(space, expected)
-            raise RebaseRequiredError(str(exc) + "; " + hint.message) from exc
+        cs_id = repo.changesets.publish_draft_in_txn(
+            txn,
+            draft_id,
+            expected_head=expected,
+            message=body.message,
+            author=body.author,
+            approver=body.author,
+            run_id=run_id,
+        )
         append_in_txn(
             txn,
             {
                 "event": "hitl_publish",
                 "run_id": run_id,
                 "changeset_id": cs_id,
+                "draft_id": draft_id,
                 "space": space,
+                "approver": body.author,
             },
         )
         return 200, {"changeset_id": cs_id, "run_id": run_id, "status": "published"}
 
-    result = run_idempotent(
+    status, result = run_idempotent(
         get_idempotency(),
         method="POST",
         route_template="/runs/{id}/verdicts",
@@ -159,4 +158,5 @@ def post_verdict(
             "changeset_id": result.get("changeset_id"),
         },
     )
+    response.status_code = status
     return result

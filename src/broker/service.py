@@ -45,6 +45,9 @@ class CapabilityBroker:
         space = str(params.get("space", claims.space))
         if space != claims.space:
             raise AuthzError("space не совпадает с token")
+        draft_id = claims.draft_id
+        if not draft_id:
+            raise AuthzError("draft_id обязателен в token")
         path = str(params.get("path", ""))
         content = str(params.get("content", ""))
         idem_key = str(params.get("idempotency_key", ""))
@@ -52,8 +55,19 @@ class CapabilityBroker:
             raise AuthzError("idempotency_key обязателен")
         assert_path_allowed(claims, path)
 
+        repo = self._repo
+        try:
+            draft = repo.drafts.get(draft_id)
+        except KeyError as exc:
+            raise AuthzError(str(exc)) from exc
+        if draft.get("space") != space:
+            raise AuthzError("draft не принадлежит space")
+        if draft.get("status") != "open":
+            raise AuthzError("draft не открыт")
+
         payload = {
             "space": space,
+            "draft_id": draft_id,
             "path": path,
             "content": content,
             "token_fp": token[:16],
@@ -64,15 +78,18 @@ class CapabilityBroker:
             route_template="uds/write_doc",
             operation="write_doc",
             owner=DEFAULT_OWNER,
-            client_key=idem_key,
+            client_key=f"{draft_id}:{idem_key}",
         )
-
-        repo = self._repo
 
         def handler(txn: WriteTxn) -> tuple[int, dict[str, Any]]:
             blob_hash = repo.blobs.put_in_txn(txn, content.encode("utf-8"))
-            repo.work.set_path_in_txn(txn, space, path, blob_hash)
-            return 200, {"path": path, "blob_hash": blob_hash, "space": space}
+            repo.drafts.put_path_in_txn(txn, draft_id, path, blob_hash)
+            return 200, {
+                "path": path,
+                "blob_hash": blob_hash,
+                "space": space,
+                "draft_id": draft_id,
+            }
 
         try:
             _status, body, _replay = self._idem.execute(scope_id, fingerprint, handler)

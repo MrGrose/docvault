@@ -20,11 +20,26 @@ def main() -> None:
     store = get_repository()
     blob = store.blobs.put(b"fee 42 coins for standard")
 
+    draft_resp = client.post("/changesets", json={"space": "default"})
+    if draft_resp.status_code != 201:
+        raise SystemExit(f"draft failed: {draft_resp.text}")
+    draft = draft_resp.json()
+    draft_id = str(draft["id"])
+    expected_head = draft["base_head"] or "genesis"
+
+    written = client.put(
+        f"/changesets/{draft_id}/doc/docs/pricing.md",
+        json={"content": "# ok\n"},
+        headers={"Idempotency-Key": "demo-hitol-write"},
+    )
+    if written.status_code != 200:
+        raise SystemExit(f"write failed: {written.text}")
+
     bad = client.post(
         "/runs",
         json={
+            "draft_id": draft_id,
             "claims": [{"text": "x", "quote": "999", "source_ref": f"blob:{blob}"}],
-            "write": {"path": "docs/x.md", "content": "nope"},
         },
     )
     if bad.status_code != 422:
@@ -34,6 +49,7 @@ def main() -> None:
     weak = client.post(
         "/runs",
         json={
+            "draft_id": draft_id,
             "claims": [
                 {
                     "text": "quantum enterprise fee",
@@ -41,7 +57,6 @@ def main() -> None:
                     "source_ref": f"blob:{blob}",
                 }
             ],
-            "write": {"path": "docs/pricing.md", "content": "# ok\n"},
         },
     )
     body = weak.json()
@@ -51,8 +66,12 @@ def main() -> None:
     run_id = str(body["id"])
     pub = client.post(
         f"/runs/{run_id}/verdicts",
-        json={"verdict": "accept", "message": "demo hitol"},
-        headers={"Idempotency-Key": "demo-hitol-accept"},
+        json={
+            "verdict": "accept",
+            "message": "demo hitol",
+            "expected_head": expected_head,
+        },
+        headers={"Idempotency-Key": f"demo-hitol-accept-{draft_id}"},
     )
     if pub.status_code != 200 or not pub.json().get("changeset_id"):
         raise SystemExit(f"publish failed: {pub.text}")
@@ -61,6 +80,7 @@ def main() -> None:
     print(
         json.dumps(
             {
+                "draft_id": draft_id,
                 "run_id": run_id,
                 "changeset_id": pub.json()["changeset_id"],
                 "audit_records": len(audit.json().get("records", [])),

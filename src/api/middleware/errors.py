@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from core.errors import (
+    AuthzError,
     ConflictError,
     IdempotencyMismatchError,
     RebaseRequiredError,
@@ -36,4 +37,11 @@ def register_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422,
             content={"error": "ungrounded", "detail": str(exc)},
+        )
+
+    @app.exception_handler(AuthzError)
+    async def authz_handler(_request: Request, exc: AuthzError) -> JSONResponse:
+        return JSONResponse(
+            status_code=403,
+            content={"error": "authz", "detail": str(exc)},
         )

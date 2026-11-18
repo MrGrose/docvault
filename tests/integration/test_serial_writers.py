@@ -4,22 +4,21 @@ from core.keys import DEFAULT_SPACE
 from core.repo import Repository
 
 
-def test_serial_commits_no_lost_updates(tmp_path: Path) -> None:
-    repo_path = tmp_path / "repo"
-    repo = Repository.init(repo_path)
-    ids: list[str] = []
-    for i in range(50):
-        blob = repo.blobs.put(f"version-{i}".encode())
-        repo.work.set_path(DEFAULT_SPACE, "doc.txt", blob)
+def test_many_serial_publishes_keep_history(tmp_path: Path) -> None:
+    repo = Repository.init(tmp_path / "repo")
+    try:
+        for i in range(50):
+            head = repo.pointers.head(DEFAULT_SPACE)
+            draft = repo.drafts.create(DEFAULT_SPACE, "user:host", head)
+            repo.write_draft(str(draft["id"]), f"docs/{i}.md", f"v{i}")
+            repo.publish_draft(str(draft["id"]), head, f"step {i}", "user:host")
+        log = repo.changesets.log(DEFAULT_SPACE)
+        assert len(log) == 50
+        assert log[0]["message"] == "step 49"
+        assert log[-1]["message"] == "step 0"
         head = repo.pointers.head(DEFAULT_SPACE)
-        cs_id = repo.changesets.commit_working_copy(
-            DEFAULT_SPACE,
-            message=f"commit-{i}",
-            author="writer",
-            expected_head=head,
-        )
-        ids.append(cs_id)
-    log = repo.changesets.log(DEFAULT_SPACE)
-    assert len(log) == 50
-    assert len(ids) == len(set(ids))
-    repo.close()
+        assert head is not None
+        tree = repo.tree_at(head)
+        assert len(tree) == 50
+    finally:
+        repo.close()

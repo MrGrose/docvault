@@ -15,6 +15,7 @@ class CapabilityClaims:
     path_prefixes: tuple[str, ...]
     ops: tuple[str, ...]
     exp: int
+    draft_id: str | None = None
 
 
 def _secret() -> bytes:
@@ -35,6 +36,7 @@ def issue_token(
     space: str,
     path_prefixes: list[str],
     ops: list[str],
+    draft_id: str,
     ttl_seconds: int = 3600,
 ) -> str:
     secret = _secret()
@@ -44,6 +46,7 @@ def issue_token(
         "path_prefixes": path_prefixes,
         "ops": ops,
         "exp": exp,
+        "draft_id": draft_id,
     }
     payload_b64 = (
         base64.urlsafe_b64encode(
@@ -70,12 +73,14 @@ def verify_token(token: str) -> CapabilityClaims:
     data = json.loads(raw.decode("utf-8"))
     exp = int(data["exp"])
     if time.time() > exp:
-        raise AuthzError("token истёк")
+        raise AuthzError("token истек")
+    draft_raw = data.get("draft_id")
     return CapabilityClaims(
         space=str(data["space"]),
         path_prefixes=tuple(str(x) for x in data["path_prefixes"]),
         ops=tuple(str(x) for x in data["ops"]),
         exp=exp,
+        draft_id=str(draft_raw) if draft_raw else None,
     )
 
 

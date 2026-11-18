@@ -9,7 +9,11 @@ export DOCVAULT_SPACE="${DOCVAULT_SPACE:-default}"
 export DOCVAULT_IDEM_KEY="${DOCVAULT_IDEM_KEY:-demo-agent-write-1}"
 
 mkdir -p "$(dirname "$DOCVAULT_BROKER_SOCKET")"
+rm -rf "$DOCVAULT_REPO"
 uv run python -m cli.dv --path "$DOCVAULT_REPO" init
+
+export DOCVAULT_DRAFT_ID="$(uv run python -c "from pathlib import Path; from core.repo import Repository; repo=Repository.open(Path('$DOCVAULT_REPO')); d=repo.drafts.create('$DOCVAULT_SPACE','user:host', repo.pointers.head('$DOCVAULT_SPACE')); print(d['id']); repo.close()")"
+echo "draft: $DOCVAULT_DRAFT_ID"
 
 uv run python -m broker.main serve --socket "$DOCVAULT_BROKER_SOCKET" --repo "$DOCVAULT_REPO" &
 BPID=$!
@@ -17,7 +21,7 @@ trap 'kill "$BPID" 2>/dev/null || true; rm -f "$DOCVAULT_BROKER_SOCKET"' EXIT
 sleep 0.4
 
 export DOCVAULT_CAPABILITY_TOKEN="$(
-  uv run python -c "from core.capability.tokens import issue_token; print(issue_token(space='$DOCVAULT_SPACE', path_prefixes=['docs/'], ops=['write_doc','ping']))"
+  uv run python -c "from core.capability.tokens import issue_token; print(issue_token(space='$DOCVAULT_SPACE', path_prefixes=['docs/'], ops=['write_doc','ping'], draft_id='$DOCVAULT_DRAFT_ID'))"
 )"
 
 TASK_PY="$(mktemp)"
@@ -42,4 +46,5 @@ else
 fi
 
 rm -f "$TASK_PY"
+uv run python -m cli.dv --path "$DOCVAULT_REPO" commit --draft "$DOCVAULT_DRAFT_ID" -m "agent demo"
 echo "demo-agent OK"

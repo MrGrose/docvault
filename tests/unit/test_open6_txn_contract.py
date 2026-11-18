@@ -10,4 +10,4 @@ def test_idempotency_store_uses_run_write() -> None:
 def test_api_handlers_take_write_txn() -> None:
     src = Path("src/api/routes/changesets.py").read_text(encoding="utf-8")
     assert "put_in_txn" in src
-    assert "commit_working_copy_in_txn" in src
+    assert "publish_draft_in_txn" in src
