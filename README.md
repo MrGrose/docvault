@@ -2,8 +2,6 @@
 
 ![CI](https://github.com/MrGrose/docvault/actions/workflows/ci.yml/badge.svg?branch=main) ![Python](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white) ![LMDB](https://img.shields.io/badge/storage-LMDB-0d47a1) ![uv](https://img.shields.io/badge/uv-DE5FE9?logo=python&logoColor=white) ![Docker](https://img.shields.io/badge/Docker%20Compose-2496ED?logo=docker&logoColor=white)
 
-![Demo DocVault](docs/assets/demo.gif)
-
 Версионированное хранилище документов с изолированными черновиками, неизменяемыми changesets и публикацией через CAS. Агент правит черновик в песочнице без сети, человек утверждает публикацию с проверкой цитат. Каждая публикация оставляет запись в audit и provenance.
 
 ## Возможности
