@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import time
+import uuid
 from dataclasses import dataclass
 
 from core.errors import AuthzError
@@ -16,6 +17,7 @@ class CapabilityClaims:
     ops: tuple[str, ...]
     exp: int
     draft_id: str | None = None
+    jti: str | None = None
 
 
 def token_fingerprint(token: str) -> str:
@@ -42,6 +44,7 @@ def issue_token(
     ops: list[str],
     draft_id: str,
     ttl_seconds: int = 3600,
+    jti: str | None = None,
 ) -> str:
     secret = _secret()
     exp = int(time.time()) + ttl_seconds
@@ -51,6 +54,7 @@ def issue_token(
         "ops": ops,
         "exp": exp,
         "draft_id": draft_id,
+        "jti": jti or uuid.uuid4().hex,
     }
     payload_b64 = (
         base64.urlsafe_b64encode(
@@ -79,12 +83,14 @@ def verify_token(token: str) -> CapabilityClaims:
     if time.time() > exp:
         raise AuthzError("token истек")
     draft_raw = data.get("draft_id")
+    jti_raw = data.get("jti")
     return CapabilityClaims(
         space=str(data["space"]),
         path_prefixes=tuple(str(x) for x in data["path_prefixes"]),
         ops=tuple(str(x) for x in data["ops"]),
         exp=exp,
         draft_id=str(draft_raw) if draft_raw else None,
+        jti=str(jti_raw) if jti_raw else None,
     )
 
 

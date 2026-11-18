@@ -84,3 +84,5 @@ def test_ui_exposes_diff_and_human_warning() -> None:
     assert 'id="runSelect"' in html
     assert "?limit=50" in script
     assert "refreshLists" in script
+    assert 'id="candidatesBtn"' in html
+    assert "loadCandidates" in script

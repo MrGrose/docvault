@@ -200,3 +200,17 @@ def test_list_runs_returns_latest_first(api: Any) -> None:
     assert set(ids) == {first["id"], second["id"]}
     assert listed[0]["claims"] == 0
     assert api.client.get("/runs?status=missing").json()["items"] == []
+
+
+def test_run_candidates_lists_changed_paragraphs(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/a.md", "# A\n\nПервое.\n\nВторое.\n", "w-cand")
+    created = api.client.post("/runs", json={"draft_id": draft["id"], "claims": []})
+    run_id = created.json()["id"]
+
+    items = api.client.get(f"/runs/{run_id}/candidates").json()["items"]
+    texts = {item["text"] for item in items}
+    assert "Первое." in texts
+    assert "Второе." in texts
+    assert all(item["change_kind"] == "add" for item in items)
+    assert api.client.get("/runs/missing/candidates").status_code == 404

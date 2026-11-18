@@ -1,5 +1,6 @@
 from typing import Any
 
+from core.capability.revocation import RevocationStore
 from core.capability.tokens import (
     CapabilityClaims,
     assert_op_allowed,
@@ -21,21 +22,28 @@ class CapabilityBroker:
     def __init__(self, repo: Repository) -> None:
         self._repo = repo
         self._idem = IdempotencyStore(repo.kv)
+        self._revoked = RevocationStore(repo.kv)
 
     def handle(self, method: str, token: str, params: dict[str, Any]) -> dict[str, Any]:
         if method not in ALLOWED_METHODS:
             raise AuthzError(f"method не в whitelist: {method}")
         if method == "ping":
-            verify_token(token)
+            self._verify(token)
             return {"pong": True}
 
-        claims = verify_token(token)
+        claims = self._verify(token)
         assert_op_allowed(claims, method)
 
         if method == "write_doc":
             return self._write_doc(claims, token, params)
         msg = f"неподдерживаемый method: {method}"
         raise AuthzError(msg)
+
+    def _verify(self, token: str) -> CapabilityClaims:
+        claims = verify_token(token)
+        if claims.jti and self._revoked.is_revoked(claims.jti):
+            raise AuthzError("token отозван")
+        return claims
 
     def _write_doc(
         self,

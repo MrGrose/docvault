@@ -39,3 +39,7 @@ AUDIT_SEQ_KEY = b"audit:seq"
 
 DEFAULT_SPACE = "default"
 DEFAULT_OWNER = "user:host"
+
+
+def revoked_key(jti: str) -> bytes:
+    return f"revoked:{jti}".encode()

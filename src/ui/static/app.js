@@ -1,3 +1,16 @@
+function apiToken() {
+  return sessionStorage.getItem("docvault-token") || "";
+}
+
+function apiFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  const token = apiToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return fetch(url, { ...options, headers });
+}
+
 async function readResponse(res) {
   const text = await res.text();
   let body;
@@ -113,7 +126,7 @@ async function loadRun() {
   if (!id) {
     return;
   }
-  const res = await fetch(`/runs/${id}`);
+  const res = await apiFetch(`/runs/${id}`);
   const data = await readResponse(res);
   if (data.error) {
     document.getElementById("status").textContent = data.statusText || "ошибка загрузки";
@@ -138,7 +151,7 @@ async function verdict(v) {
   if (currentRun && currentRun.expected_head) {
     payload.expected_head = currentRun.expected_head;
   }
-  const res = await fetch(`/runs/${id}/verdicts`, {
+  const res = await apiFetch(`/runs/${id}/verdicts`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Idempotency-Key": key },
     body: JSON.stringify(payload),
@@ -153,7 +166,7 @@ async function verdict(v) {
 async function refreshRuns() {
   const draft = document.getElementById("draftSelect").value;
   const query = draft ? `?draft_id=${encodeURIComponent(draft)}&limit=50` : "?limit=50";
-  const res = await fetch(`/runs${query}`);
+  const res = await apiFetch(`/runs${query}`);
   const data = await readResponse(res);
   const select = document.getElementById("runSelect");
   select.replaceChildren();
@@ -170,7 +183,7 @@ async function refreshRuns() {
 }
 
 async function refreshLists() {
-  const res = await fetch("/changesets?status=open&limit=50");
+  const res = await apiFetch("/changesets?status=open&limit=50");
   const data = await readResponse(res);
   const select = document.getElementById("draftSelect");
   select.replaceChildren();
@@ -187,7 +200,40 @@ async function refreshLists() {
   await refreshRuns();
 }
 
+async function loadCandidates() {
+  const id = document.getElementById("runId").value.trim();
+  if (!id) {
+    return;
+  }
+  const res = await apiFetch(`/runs/${id}/candidates`);
+  const data = await readResponse(res);
+  const box = document.getElementById("candidates");
+  box.replaceChildren();
+  const title = document.createElement("p");
+  title.className = "muted";
+  title.textContent = "Кандидаты не проверены: для claim нужны цитата и source_ref.";
+  box.appendChild(title);
+  (data.items || []).forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "claim";
+    const head = document.createElement("strong");
+    head.textContent = `${item.change_kind} ${item.path}`;
+    const text = document.createElement("p");
+    text.className = "claim-text";
+    text.textContent = item.text;
+    row.appendChild(head);
+    row.appendChild(text);
+    box.appendChild(row);
+  });
+}
+
+document.getElementById("apiToken").value = apiToken();
+document.getElementById("saveToken").onclick = () => {
+  sessionStorage.setItem("docvault-token", document.getElementById("apiToken").value.trim());
+  refreshLists();
+};
 document.getElementById("loadBtn").onclick = loadRun;
+document.getElementById("candidatesBtn").onclick = loadCandidates;
 document.getElementById("refreshBtn").onclick = refreshLists;
 document.getElementById("draftSelect").onchange = refreshRuns;
 document.getElementById("runSelect").onchange = () => {

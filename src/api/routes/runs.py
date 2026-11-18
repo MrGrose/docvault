@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from agent.claims import Claim
+from agent.extract import changed_paragraphs
 from agent.stages.validate import aggregate_status, validate_claims_for_change
 from api.deps import get_idempotency, get_repository
 from api.middleware.idempotency import run_idempotent
@@ -173,6 +174,27 @@ def list_runs(
             for run in runs
         ]
     }
+
+
+@router.get("/{run_id}/candidates")
+def run_candidates(run_id: str) -> dict[str, Any]:
+    try:
+        run = _runs().get(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    repo = _repo()
+    draft_id = str(run.get("draft_id", ""))
+    if not draft_id:
+        raise HTTPException(status_code=422, detail="run без draft_id")
+    try:
+        draft = repo.drafts.get(draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    items: list[dict[str, Any]] = []
+    for path, (old, new) in _draft_documents(repo, draft).items():
+        for candidate in changed_paragraphs(old, new):
+            items.append({"path": path, **candidate})
+    return {"items": items}
 
 
 @router.get("/{run_id}")

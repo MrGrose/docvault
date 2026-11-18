@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/MrGrose/docvault/actions/workflows/ci.yml/badge.svg?branch=main) ![Python](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white) ![LMDB](https://img.shields.io/badge/storage-LMDB-0d47a1) ![uv](https://img.shields.io/badge/uv-DE5FE9?logo=python&logoColor=white) ![Docker](https://img.shields.io/badge/Docker%20Compose-2496ED?logo=docker&logoColor=white)
 
-![DocVault architecture overview](docs/assets/demo.png)
+![Demo DocVault](docs/assets/demo.gif)
 
 Версионированное хранилище документов с изолированными черновиками, неизменяемыми changesets и публикацией через CAS. Агент правит черновик в песочнице без сети, человек утверждает публикацию с проверкой цитат. Каждая публикация оставляет запись в audit и provenance.
 
@@ -16,7 +16,8 @@
 - Buzhash CDC и дедупликация крупных blob.
 - Claims с тремя результатами: evidence, binding к измененному фрагменту, support как подсказка.
 - Provenance с хэшем цитаты и ссылкой на источник, audit на каждый publish в одной транзакции.
-- Capability broker по UDS, токен привязан к space и draft_id.
+- Capability broker по UDS, токен привязан к space и draft_id, отзыв по `jti`.
+- API может требовать bearer token, списки черновиков и прогонов, кандидаты claims из диффа.
 - Docker sandbox: без сети, лимиты памяти, CPU, pids, read-only rootfs, non-root.
 - UI на `/ui`: список черновиков, список прогонов, diff, цитаты, статусы и предупреждение о ручной проверке смысла.
 
@@ -70,7 +71,7 @@ make demo-hitol
 
 | Проверка | Результат |
 |----------|-----------|
-| `uv run pytest` | 154 теста проходят, 1 скипается (fault-тест требует Docker) |
+| `uv run pytest` | 162 теста проходят, 1 скипается (fault-тест требует Docker) |
 | `uv run pytest --cov=src` | покрытие 91% по `src` |
 | `uv run ruff check .` и `uv run mypy src` | без замечаний, mypy в strict-режиме |
 | Локальность CDC | вставка одного байта в файл 96 КБ меняет 1 чанк из 27 |
@@ -139,7 +140,11 @@ curl -s -X POST $BASE/runs \
   -H 'Content-Type: application/json' \
   -d '{"draft_id":"<draft_id>","claims":[{"path":"docs/offer.md","text":"тариф 100 рублей","quote":"Тариф 100 рублей","source_ref":"<sha256 blob>"}]}'
 
-# 7. Вердикт: expected_head это база, которую видел ревьюер
+# 7a. Отзыв capability-токена
+curl -s -X POST $BASE/capability/revoke \
+  -H 'Content-Type: application/json' -d '{"token":"<capability token>"}'
+
+# 7b. Вердикт: expected_head это база, которую видел ревьюер
 curl -s -X POST "$BASE/runs/<run_id>/verdicts" \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: verdict-1' \
   -d '{"verdict":"accept","expected_head":"genesis"}'
@@ -152,6 +157,10 @@ curl -s "$BASE/runs?limit=20"
 curl -s "$BASE/audit?limit=20"
 ```
 
+Если задан `DOCVAULT_API_TOKEN`, все запросы кроме `/health`, `/ui` и `/docs` требуют `Authorization: Bearer <token>`. UI хранит токен в sessionStorage.
+
+Кандидаты claims: `GET /runs/<run_id>/candidates` возвращает измененные абзацы с `change_kind` и `text`. Это подсказка для ревьюера, а не проверенные claims: цитату и `source_ref` нужно указать отдельно.
+
 Коды ответов: `201` черновик создан, `200` запись, публикация или вердикт, `409` конфликт CAS, `rebase_required`, `idempotency_mismatch` или закрытый черновик, `422` ошибка валидации, неподтвержденная цитата, отсутствующий `Idempotency-Key` или `expected_head`, `403` чужой черновик.
 
 ## Ограничения
@@ -163,6 +172,8 @@ curl -s "$BASE/audit?limit=20"
 - Песочница требует Docker и `docker.sock` на хосте, broker слушает только UDS.
 - Проверяется буквальная цитата и привязка к изменению; смысл утверждения проверяет человек.
 - Provenance заполняется только в HITL, где есть claims. Публикация из CLI и обычный publish пишут пустой список.
+- Список отозванных `jti` хранится без TTL и не чистится.
+- Bearer token API один на инстанс, без ролей и пользователей.
 - Идемпотентные ключи хранятся без TTL, журнал аудита только дописывается.
 - API без аутентификации, только localhost. Для удаленного доступа SSH tunnel, не VPN и не публичный интерфейс.
 - Полнотекстового поиска нет.
