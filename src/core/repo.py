@@ -46,12 +46,24 @@ class Repository:
         result: dict[str, str] = {}
 
         def body(txn: Any) -> None:
-            blob_hash = self.blobs.put_in_txn(txn, content.encode("utf-8"))
-            self.drafts.put_path_in_txn(txn, draft_id, path, blob_hash, actor)
-            result["blob_hash"] = blob_hash
+            result["blob_hash"] = self.write_draft_in_txn(
+                txn, draft_id, path, content, actor
+            )
 
         self.kv.run_write(body)
         return result["blob_hash"]
+
+    def write_draft_in_txn(
+        self,
+        txn: Any,
+        draft_id: str,
+        path: str,
+        content: str,
+        actor: str | None = None,
+    ) -> str:
+        blob_hash = self.blobs.put_in_txn(txn, content.encode("utf-8"))
+        self.drafts.put_path_in_txn(txn, draft_id, path, blob_hash, actor)
+        return blob_hash
 
     def publish_draft(
         self,

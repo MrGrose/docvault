@@ -70,6 +70,17 @@ def test_work_key_is_not_used(api: Any) -> None:
     assert get_repository().kv.get(b"work:default") is None
 
 
+def test_publish_without_expected_head_returns_422(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/a.md", "v1", "w-nohead")
+    response = api.client.post(
+        f"/changesets/{draft['id']}/publish",
+        json={"message": "no head", "author": "user:host"},
+        headers={"Idempotency-Key": "p-nohead"},
+    )
+    assert response.status_code == 422
+
+
 def test_write_doc_requires_idempotency_key(api: Any) -> None:
     draft = api.draft()
     response = api.client.put(

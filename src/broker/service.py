@@ -82,8 +82,7 @@ class CapabilityBroker:
         )
 
         def handler(txn: WriteTxn) -> tuple[int, dict[str, Any]]:
-            blob_hash = repo.blobs.put_in_txn(txn, content.encode("utf-8"))
-            repo.drafts.put_path_in_txn(txn, draft_id, path, blob_hash)
+            blob_hash = repo.write_draft_in_txn(txn, draft_id, path, content)
             return 200, {
                 "path": path,
                 "blob_hash": blob_hash,
