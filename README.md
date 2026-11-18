@@ -4,24 +4,28 @@
 
 ![DocVault architecture overview](docs/assets/demo.png)
 
-Версионированное хранилище документов с доказуемой целостностью: OCC/CAS на ревизии `head`, changesets, CDC для blob, HTTP API и CLI. Автономный агент правит черновик в Docker-песочнице через capability broker; человек утверждает публикацию с проверкой цитат из исходных байтов (HITL).
+Версионированное хранилище документов с изолированными черновиками, неизменяемыми changesets и публикацией через CAS. Агент правит черновик в песочнице без сети, человек утверждает публикацию с проверкой цитат. Каждая публикация оставляет запись в audit и provenance.
 
 ## Возможности
 
-- LMDB-хранилище с оптимистичным контролем на `head` (без потери обновлений при конкуренции).
-- Changesets и publish с CAS; CLI `dv` и REST API.
+- Черновик на автора: свой id, владелец, `base_head`, пути и конфликты. Общей рабочей копии нет.
+- Публикация только при `expected_head == draft.base_head`, CAS на `head`, конфликт дает 409.
+- Rebase создает новый черновик, старый не меняется, конфликтные пути помечаются.
+- Changesets неизменяемы, дерево публикации это база черновика плюс его пути.
 - Buzhash CDC и дедупликация крупных blob.
-- FastAPI: changesets, documents, runs, audit; `Idempotency-Key` на мутациях.
-- Capability broker (UDS) и Docker sandbox (`network none`) для кода агента.
-- Evidence и claims; слабый support -> human review; UI на `/ui`.
+- Claims с тремя результатами: evidence, binding к измененному фрагменту, support как подсказка.
+- Provenance с хэшем цитаты и ссылкой на источник, audit на каждый publish в одной транзакции.
+- Capability broker по UDS, токен привязан к space и draft_id.
+- Docker sandbox: без сети, лимиты памяти, CPU, pids, read-only rootfs, non-root.
+- UI на `/ui`: diff, цитаты, статусы и предупреждение о ручной проверке смысла.
 
-## Архитектурные принципы
+## Принципы
 
-- **Один доменный слой** - `Repository` + LMDB для CLI, API и broker; агент не читает LMDB напрямую.
-- **CAS на head** - publish только при совпадении ожидаемой ревизии.
-- **Изоляция агента** - запись только через capability token и broker.
-- **HITL** - publish после вердикта с проверкой, что цитата - подстрока bytes по `source_ref` (полной антигаллюцинации LLM нет).
-- **Audit** - значимые события, включая HITL, в журнале LMDB.
+- **Один доменный слой.** `Repository` и LMDB для CLI, API и broker; агент не читает базу.
+- **Draft isolation.** Два автора могут менять один путь в разных черновиках, конфликт виден на publish.
+- **CAS и атомарность.** Changeset, `head`, provenance, audit и idempotency outcome пишутся вместе.
+- **Grounding без обещаний.** `grounded` значит "цитата найдена и утверждение привязано к изменению", а не "утверждение истинно".
+- **Минимум поверхности.** API только на localhost, песочница без сети, доступ к данным только через broker.
 
 ## Tech Stack
 
@@ -41,7 +45,7 @@ export DOCVAULT_CAPABILITY_SECRET=dev-demo-secret && make demo-agent
 make demo-hitol
 ```
 
-Для HITL-демо:
+Для HITL-демо с UI:
 
 ```bash
 export DOCVAULT_REPO=./data/hitol-repo
@@ -55,9 +59,9 @@ make demo-hitol
 
 | Команда | Что показывает |
 |---------|----------------|
-| `make demo-1` | LMDB, CAS, CLI, concurrent writers |
-| `make demo-agent` | Broker UDS, sandbox, agent pipeline |
-| `make demo-hitol` | Evidence, HITL UI, runs, audit |
+| `make demo-1` | Черновики, CAS, CLI, конкурентные писатели |
+| `make demo-agent` | Broker UDS, sandbox, агентский черновик и публикация |
+| `make demo-hitol` | Claims, evidence, вердикт, audit |
 
 Опционально: `make test-fault` (Docker, отдельный CI job).
 
@@ -65,11 +69,12 @@ make demo-hitol
 
 | Проверка | Результат |
 |----------|-----------|
-| `uv run pytest` | 65 тестов проходят, 1 скипается (fault-тест требует Docker) |
-| `uv run pytest --cov=src` | покрытие 86% по `src`, включая песочницу и CLI |
+| `uv run pytest` | 150 тестов проходят, 1 скипается (fault-тест требует Docker) |
+| `uv run pytest --cov=src` | покрытие 91% по `src` |
 | `uv run ruff check .` и `uv run mypy src` | без замечаний, mypy в strict-режиме |
 | Локальность CDC | вставка одного байта в файл 96 КБ меняет 1 чанк из 27 |
-| CI | ruff, формат, mypy, pytest с покрытием; fault-тест отдельным job в Docker |
+| Конкурентность | симуляция 100 черновиков с rebase: 100 changesets, ни один файл не потерян |
+| CI | ruff, формат, mypy, pytest с порогом покрытия; fault-тест отдельным job в Docker |
 
 Числа получены на локальной машине (8 ядер), воспроизводятся командами из раздела Development.
 
@@ -83,7 +88,7 @@ make demo-hitol
 | вставка 3000 Б | 6.29x | 1.80x |
 | удаление 3000 Б | 6.02x | 1.40x |
 
-База 300 КБ, 10 версий, seed 42, время на все 10 версий: CDC около 0.3 с, fixed около 0.001 с. Fixed выигрывает на правке без сдвига границ (там ему достаточно переписать один блок), а на вставке и удалении теряет почти все чанки после места правки. Время CDC это цена python-реализации, а не алгоритма; чанки считаются один раз при записи blob.
+База 300 КБ, 10 версий, seed 42, время на все 10 версий: CDC около 0.3 с, fixed около 0.001 с. Fixed выигрывает на правке без сдвига границ, а на вставке и удалении теряет почти все чанки после места правки. Время CDC это цена python-реализации, а не алгоритма.
 
 ## Запуск в Docker Compose
 
@@ -92,71 +97,69 @@ docker compose up --build -d
 curl -s http://127.0.0.1:8000/health   # {"status":"ok"}
 ```
 
-- Данные лежат в `./data` (в контейнере `/app/data`, репозиторий `/app/data/repo`), каталог переживает перезапуск.
+- Порт опубликован только на `127.0.0.1:8000`. Наружу API не выставляется, удаленный доступ через SSH tunnel.
+- Данные лежат в `./data`, каталог переживает перезапуск.
 - UI: `http://127.0.0.1:8000/ui/`, OpenAPI: `http://127.0.0.1:8000/docs`.
-- Остановить: `docker compose down`.
-- Песочница и `make demo-agent` из этого контейнера не запускаются: агенту нужен доступ к `docker.sock` и broker по UDS. Эти демо запускаются на хосте, как описано выше.
+- Песочница и `make demo-agent` из контейнера не запускаются: нужен доступ к `docker.sock` и broker по UDS. Эти демо идут на хосте.
 
 ## API
 
-Группы: **changesets** (create, write doc, publish), **docs**, **runs** (создание, вердикты), **audit**. На всех мутациях обязателен заголовок `Idempotency-Key`: повтор с тем же ключом возвращает сохраненный ответ, тот же ключ с другим телом дает `409 idempotency_mismatch`.
+Группы: **changesets** (создание черновика, запись, publish, rebase), **docs**, **runs** (claims, вердикты), **audit**. На мутациях обязателен `Idempotency-Key`: повтор возвращает сохраненный ответ, тот же ключ с другим телом дает `409 idempotency_mismatch`.
 
 ```bash
 BASE=http://127.0.0.1:8080
 
-# 1. Черновик: id в ответе равен имени пространства
+# 1. Черновик: в ответе id и base_head
 curl -s -X POST $BASE/changesets \
   -H 'Content-Type: application/json' -d '{"space":"default"}'
+# {"id":"<draft_id>","space":"default","owner":"user:host","base_head":null}
 
-# 2. Запись документа в черновик
-curl -s -X PUT $BASE/changesets/default/doc/docs/offer.md \
+# 2. Запись документа
+curl -s -X PUT "$BASE/changesets/<draft_id>/doc/docs/offer.md" \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: write-1' \
   -d '{"content":"# Оффер\n\nТариф 100 рублей.\n"}'
 
-# 3. Публикация (CAS на head)
-curl -s -X POST $BASE/changesets/default/publish \
+# 3. Публикация: expected_head равен base_head, для первого коммита это genesis
+curl -s -X POST "$BASE/changesets/<draft_id>/publish" \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: publish-1' \
-  -d '{"message":"оффер","author":"user:host"}'
+  -d '{"message":"оффер","author":"user:host","expected_head":"genesis"}'
 
-# 4. Конфликт: сначала есть незакоммиченная правка, затем publish со старым head
-curl -s -X PUT $BASE/changesets/default/doc/docs/offer.md \
-  -H 'Content-Type: application/json' -H 'Idempotency-Key: write-2' \
-  -d '{"content":"# Оффер v2\n"}'
-curl -s -X POST $BASE/changesets/default/publish \
-  -H 'Content-Type: application/json' -H 'Idempotency-Key: publish-2' \
-  -d '{"message":"оффер","expected_head":"deadbeef"}'   # 409 rebase_required
+# 4. Конфликт: второй черновик на той же базе получает 409 rebase_required
+curl -s -X POST "$BASE/changesets/<draft_id>/rebase" \
+  -H 'Idempotency-Key: rebase-1'
+# {"draft":{...,"conflicts":["docs/offer.md"]}}
 
 # 5. Чтение опубликованного дерева и файла
 curl -s "$BASE/docs/tree?space=default"
 curl -s "$BASE/docs/doc/docs/offer.md"
 
-# 6. Агентский прогон: claim с цитатой и правкой
+# 6. Агентский прогон: claim привязан к пути черновика
 curl -s -X POST $BASE/runs \
   -H 'Content-Type: application/json' \
-  -d '{"claims":[{"text":"тариф 100 рублей","quote":"Тариф 100 рублей","source_ref":"<sha256 blob>"}],"write":{"path":"docs/offer.md","content":"# Оффер\n\nТариф 100 рублей.\n"}}'
+  -d '{"draft_id":"<draft_id>","claims":[{"path":"docs/offer.md","text":"тариф 100 рублей","quote":"Тариф 100 рублей","source_ref":"<sha256 blob>"}]}'
 
-# 7. Вердикт человека: accept публикует, reject отклоняет
-curl -s -X POST $BASE/runs/<run_id>/verdicts \
+# 7. Вердикт: expected_head это база, которую видел ревьюер
+curl -s -X POST "$BASE/runs/<run_id>/verdicts" \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: verdict-1' \
-  -d '{"verdict":"accept"}'
+  -d '{"verdict":"accept","expected_head":"genesis"}'
 
-# 8. Журнал: обычный publish туда не пишется, записи появляются после HITL-вердикта
+# 8. Журнал: каждый publish, включая CLI и API
 curl -s "$BASE/audit?limit=20"
 ```
 
-Коды ответов: `200` успех, `202` прогон требует человека (`needs_human`), `409` конфликт CAS, `rebase_required` или `idempotency_mismatch`, `422` цитата не подтверждена (`ungrounded`) или отсутствует `Idempotency-Key`.
+Коды ответов: `201` черновик создан, `200` запись, публикация или вердикт, `409` конфликт CAS, `rebase_required`, `idempotency_mismatch` или закрытый черновик, `422` ошибка валидации, неподтвержденная цитата, отсутствующий `Idempotency-Key` или `expected_head`, `403` чужой черновик.
 
 ## Ограничения
 
-- Одна нода и один процесс: LMDB-файл, `MAP_SIZE` 50 МБ задается при открытии и на лету не растет.
-- LMDB пускает одного писателя за раз; конкурентность держится на CAS в логике, а не на параллельной записи.
-- Rebase это повтор с новым `head`, трехстороннего merge нет: конфликтующие пути не сливаются автоматически.
-- Capability-токен это HMAC-подпись секретом из `DOCVAULT_CAPABILITY_SECRET` с TTL; списка отзыва и привязки токена к конкретному run нет.
-- Песочница требует Docker и доступа к `docker.sock` на хосте; broker слушает только UDS, из другой машины к нему не подключиться.
-- Антигаллюцинация ограничена: проверяется, что цитата является подстрокой байтов источника, смысл утверждения не проверяется.
-- Идемпотентные ключи хранятся без TTL и не чистятся, журнал аудита только дописывается и читается через API; обычный publish в аудит не попадает, там только HITL-публикации.
-- Публикация пустого черновика отвечает `409 conflict` с ошибкой `нет изменений для коммита`; отдельного кода для этого случая нет.
-- Полнотекстового поиска по документам нет.
+- Одна нода и один процесс: LMDB, размер карты задается `DOCVAULT_MAP_SIZE` при открытии, на лету не растет.
+- LMDB пускает одного писателя; конкурентность держится на CAS и rebase, а не на параллельной записи.
+- Rebase не делает трехсторонний merge: конфликтные пути помечаются и правятся вручную.
+- Capability-токен это HMAC с TTL, привязанный к space и draft_id; списка отзыва нет.
+- Песочница требует Docker и `docker.sock` на хосте, broker слушает только UDS.
+- Проверяется буквальная цитата и привязка к изменению; смысл утверждения проверяет человек.
+- Идемпотентные ключи хранятся без TTL, журнал аудита только дописывается.
+- API без аутентификации, только localhost. Для удаленного доступа SSH tunnel, не VPN и не публичный интерфейс.
+- Полнотекстового поиска нет.
 
 ## Development
 
@@ -168,24 +171,20 @@ uv run pytest tests/bdd/ -q
 uv run pytest --cov=src --cov-report=term-missing tests/
 ```
 
-Перед merge: тесты и линтер зеленые локально и в CI.
+Перед merge: тесты, линтер и покрытие не ниже 90 зеленые локально и в CI.
 
 ### `scripts/`
 
-Вспомогательные сценарии для демо и локальных замеров (не часть runtime `src/`). Демо-шеллы вызываются из `make demo-*`; остальное запускается вручную.
+Вспомогательные сценарии для демо и замеров, не часть runtime `src/`.
 
 | Файл | Назначение |
 |------|------------|
-| `demo_1.sh` | LMDB, CAS, параллельные writers через CLI |
-| `demo_agent.sh` | broker UDS, sandbox, agent pipeline |
-| `demo_hitol.sh` | HITL: поднимает сценарий и вызывает клиент |
-| `hitol_demo_client.py` | HTTP-клиент для HITL-демо (runs, verdict, publish) |
-| `bench_cdc.py` | бенч buzhash и fixed-chunk на трех сценариях правки |
-
-Запуск бенча: `make bench`.
+| `demo_1.sh` | Черновики, CAS, CLI |
+| `demo_agent.sh` | Broker UDS, sandbox, агентский черновик |
+| `demo_hitol.sh` | Claims, вердикт, audit |
+| `hitol_demo_client.py` | HTTP-клиент для HITL-демо |
+| `bench_cdc.py` | Бенч buzhash и fixed-chunk |
 
 ## Architecture
 
-На хосте: API, CLI, broker и LMDB. Агент в контейнере без сети обращается к broker по UDS; broker пишет в тот же `Repository`, что и API.
-
-Подробно: компоненты, поток от агента до publish, хранение, безопасность и ограничения реализации - **[docs/architecture.md](docs/architecture.md)**.
+На хосте: API, CLI, broker и LMDB. Агент в контейнере без сети обращается к broker по UDS. Подробно: **[docs/architecture.md](docs/architecture.md)**.

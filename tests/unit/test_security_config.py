@@ -31,9 +31,7 @@ def test_compose_binds_localhost() -> None:
     assert '"8000:8000"' not in text
 
 
-def test_map_full_raises_domain_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_map_full_raises_domain_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DOCVAULT_MAP_SIZE", "1048576")
     kv = LmdbKv.open(tmp_path / "small")
     try:

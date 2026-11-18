@@ -73,9 +73,7 @@ def put_doc(
     payload = {"draft_id": draft_id, "path": path, "content": body.content}
 
     def handler(txn: WriteTxn) -> tuple[int, dict[str, Any]]:
-        blob_hash = repo.write_draft_in_txn(
-            txn, draft_id, path, body.content, DEFAULT_OWNER
-        )
+        blob_hash = repo.write_draft_in_txn(txn, draft_id, path, body.content, DEFAULT_OWNER)
         return 200, {"path": path, "blob_hash": blob_hash, "draft_id": draft_id}
 
     status, result = run_idempotent(

@@ -126,8 +126,9 @@ async function loadRun() {
     `status: ${data.status}, draft: ${data.draft_id || "-"}, base: ${data.expected_head || "genesis"}`;
   renderDiff(document.getElementById("diff"), data);
   renderClaims(document.getElementById("claims"), data.claims || [], data.validations || []);
-  const accept = document.getElementById("acceptBtn");
-  accept.disabled = data.status === "blocked";
+  const closed = ["blocked", "published", "rejected"].includes(data.status);
+  document.getElementById("acceptBtn").disabled = closed;
+  document.getElementById("rejectBtn").disabled = closed;
 }
 
 async function verdict(v) {

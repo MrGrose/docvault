@@ -46,9 +46,7 @@ class DockerRuntime:
             working_dir=workdir,
             **self._limits(),
         )
-        result = container.wait(
-            timeout=int(os.environ.get("DOCVAULT_SANDBOX_TIMEOUT", "120"))
-        )
+        result = container.wait(timeout=int(os.environ.get("DOCVAULT_SANDBOX_TIMEOUT", "120")))
         exit_code = int(result.get("StatusCode", 125))
         return RunResult(container_id=container.id or "", exit_code=exit_code)
 

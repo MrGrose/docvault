@@ -1,26 +1,26 @@
 # Архитектура DocVault
 
-Однопользовательское хранилище документов с версионированием на **LMDB**, оптимистичным контролем на `head` (CAS) и контуром, в котором **AI-агент** меняет черновик в **изолированной песочнице**, а **человек** утверждает публикацию с проверкой **цитат** из исходных байтов.
+Однопользовательское хранилище документов на LMDB: изолированные черновики, неизменяемые changesets, публикация через CAS, проверка цитат и human-in-the-loop. Агент работает в песочнице без сети и пишет только через broker.
 
-## Архитектурная идея
+## Принципы
 
-- **Единый доменный слой** (`Repository` + LMDB) обслуживает CLI, HTTP API и capability broker; агент **не** имеет прямого доступа к базе.
-- **Changeset** - единица черновика; публикация поднимает ревизию `head` только при успешном CAS.
-- **Агент** пишет в хранилище только через **SDK -> UDS broker -> Repository** с **capability token** (пути и операции).
-- **HITL**: результат агента - **run** с **claims** (`source_ref`, evidence, `support`); при publish проверяется, что цитата - подстрока исходного файла.
+- Один доменный слой `Repository` обслуживает CLI, HTTP API и broker. Прямых записей в LMDB вне его нет.
+- Черновик принадлежит автору и имеет собственный id и базовую ревизию. Общей рабочей копии на space нет.
+- Changeset создается только при публикации и после этого не меняется.
+- Публикация атомарна: changeset, CAS на `head`, provenance, audit и idempotency outcome пишутся в одной транзакции.
+- Утверждение проверяется по трем независимым результатам: evidence, binding к измененному фрагменту, support как эвристика. Статус `grounded` не значит "истинно", смысл проверяет человек.
+- API слушает только localhost, удаленный доступ через SSH tunnel. Песочница без сети, broker доступен только по UDS.
 
-## Архитектура системы
-
-Граница доверия: LMDB и `docker.sock` только на хосте; контейнер агента без сети и без LMDB.
+## Схема
 
 ```mermaid
 flowchart LR
   subgraph host["Хост"]
     API["FastAPI + UI"]
     CLI["CLI dv"]
-    Repo["Repository"]
+    Repo["Repository + DraftStore"]
     Broker["Broker UDS"]
-    Orch["Docker orchestrator"]
+    Orch["Docker runtime"]
     API --> Repo
     CLI --> Repo
     Broker --> Repo
@@ -34,81 +34,75 @@ flowchart LR
   Repo --> LMDB[(LMDB)]
 ```
 
-## Основные компоненты
+## Компоненты
 
 | Компонент | Где | Ответственность |
 |-----------|-----|-----------------|
-| **Domain store** (`core/storage`, `core/kv`) | Хост | LMDB, ключи `meta:head`, `cs:*`, `blob:*`, `idem:*`, `audit:*`, `run:*` |
-| **Repository** | Хост | Changeset, publish с CAS, docs в cs, blobs, audit, runs, idempotency |
-| **CDC (Buzhash)** | Хост | Чанкование blob, дедупликация чанков |
-| **CLI `dv`** | Хост | `init`, `write`, `commit`, `publish` |
-| **FastAPI** | Хост | REST: changesets, docs, runs, audit; idempotency middleware |
-| **UI** | Хост | Pending runs на `/ui` |
-| **Agent pipeline** | Хост | draft (sandbox) -> validate -> claims |
-| **Broker** | Хост | UDS: проверка capability token, `write_doc` |
-| **Sandbox** | Контейнер | `network none`, лимиты памяти и CPU, non-root, no-new-privileges, UDS к broker |
-| **SDK client** | Контейнер | Вызовы broker из кода агента |
+| `core/kv.py` | Хост | LMDB, `get`, `put_cas`, `scan`, `snapshot`, размер карты из env |
+| `DraftStore` | Хост | Черновики: создание, пути, rebase, статус, владелец |
+| `ChangesetStore` | Хост | Публикация черновика, CAS, provenance, audit |
+| `BlobStore` и CDC | Хост | Чанки, дедупликация, деревья, diff |
+| `Repository` | Хост | Единая точка записи для API, CLI и broker |
+| CLI `dv` | Хост | `init`, `write`, `commit`, `log`, `diff`, `checkout`, флаг `--draft` |
+| FastAPI | Хост | changesets, docs, runs, audit, UI, idempotency |
+| Broker | Хост | Проверка capability и запись в конкретный черновик |
+| Sandbox | Контейнер | `network none`, лимиты памяти, CPU, pids, read-only rootfs, non-root |
 
-Модули в `src/` (`api`, `broker`, `agent`, `sandbox`, `core`, `cli`), без отдельных деплоев на capability.
-
-## Поток обработки документа
+## Поток
 
 | Шаг | Действие |
 |-----|----------|
-| 1 | Инициализация репозитория и changeset (CLI или API) |
-| 2 | Исходные файлы в changeset (`write` / PUT doc) |
-| 3 | Draft - Python агента в Docker sandbox (сейчас фиксированный шаблон, модель не вызывается) |
-| 4 | SDK -> broker -> `write_doc` (после проверки token) |
-| 5 | Validate - evidence: цитата есть в байтах источника, support по токенам claim и цитаты |
-| 6 | Claims с evidence и `source_ref` |
-| 7 | Run в ожидании ревью |
-| 8 | Verdict в UI или `POST /runs/{id}/verdicts` |
-| 9 | Accept: проверка подстроки цитаты; publish с CAS на `head` |
+| 1 | `POST /changesets` создает черновик: id, владелец, `base_head` |
+| 2 | Запись документа в черновик через API, CLI или broker |
+| 3 | Агент пишет код, код исполняется в песочнице и вызывает broker |
+| 4 | Broker проверяет токен: space, draft_id, путь, операция, срок |
+| 5 | Создается run с claims: путь, текст, цитата, источник, диапазон |
+| 6 | Evidence проверяется по байтам, binding по измененному фрагменту, support как подсказка |
+| 7 | Ревьюер видит diff, цитаты и статусы в UI |
+| 8 | Вердикт accept публикует черновик, reject закрывает run |
+| 9 | Публикация: `expected_head == draft.base_head`, CAS, audit и provenance в одной транзакции |
 
-```mermaid
-sequenceDiagram
-  participant Op as Оператор
-  participant API as FastAPI
-  participant Pipe as Agent pipeline
-  participant Sbx as Sandbox
-  participant Brk as Broker UDS
-  participant Repo as Repository
-  participant Rev as Ревьюер
+## Данные
 
-  Op->>API: создать changeset, записать docs
-  Op->>Pipe: запуск пайплайна
-  Pipe->>Sbx: выполнить draft-код
-  Sbx->>Brk: write_doc (capability token)
-  Brk->>Repo: запись в changeset
-  Pipe->>Repo: run + claims
-  Rev->>API: accept / reject
-  API->>Repo: проверка цитаты, publish CAS, audit
-```
+| Ключ | Значение | Изменяемость |
+|------|----------|--------------|
+| `draft:{id}` | id, space, owner, base_head, parent_draft, paths, conflicts, status | пока открыт |
+| `cs:{id}` | parent, base_head, tree_hash, author, approver, run_id, provenance, draft_id | никогда |
+| `head:{space}` | id опубликованного changeset | только CAS |
+| `blob:{sha}` | список чанков | никогда |
+| `chunk:{sha}` | байты чанка | никогда |
+| `tree:{sha}` | путь к blob | никогда |
+| `idem:{scope}` | fingerprint, статус, ответ | однократно, в одной транзакции с эффектом |
+| `audit:{seq}` | событие, автор, утвердивший, draft_id, changeset_id, tree_hash | append-only |
+| `run:{id}` | прогон, claims, статусы, вердикт | до вердикта |
 
-Прямой HTTP file-mode агента без sandbox в демо не используется. Антигаллюцинация LLM не гарантируется; при accept проверяется только буквальная цитата. Draft в текущем коде это фиксированный шаблон `draft_tariffs_code()`, вызова модели нет; стадия с моделью описана в плане развития.
+Публикация собирает дерево как базовое дерево черновика плюс его пути. Публиковать только пути черновика нельзя: тогда из истории пропадают нетронутые файлы.
 
-## Хранение и версионирование
+## Claims
 
-- **Space** (по умолчанию `default`) и указатель **`head:{space}`** с идентификатором опубликованного changeset.
-- **Changeset** (`cs:{id}`, идентификатор uuid4): метаданные и дерево документов; publish при `expected_head` (конфликт -> 409).
-- **Blob store** + **CDC** для крупного содержимого.
-- **Idempotency-Key** на мутациях API.
-- **Audit** в LMDB, в том числе события HITL publish.
+- `evidence`: источник доступен, цитата совпадает с байтами, `byte_range` совпадает, если задан.
+- `binding`: путь входит в изменения, текст найден в конкретном измененном абзаце. Для `delete` текст есть в удаленном фрагменте и отсутствует в новом.
+- `support`: пересечение токенов, только подсказка.
 
-CLI и API используют один путь данных (`DOCVAULT_PATH` / env).
+Итог: `blocked` при провале evidence, `needs_human` при провале binding или слабом support, `grounded` когда evidence и binding прошли. Нормализация текста сжимает пробелы и CRLF/LF, регистр и пунктуация сохраняются.
 
 ## Безопасность
 
 | Механизм | Поведение |
 |----------|-----------|
-| Capability token | HMAC (`DOCVAULT_CAPABILITY_SECRET`): space, префиксы путей, ops |
-| Broker UDS | Единственный путь sandbox -> LMDB для `write_doc` |
-| Docker sandbox | `network_mode=none`, `mem_limit`, `nano_cpus`, non-root, no-new-privileges; `pids_limit` не задан |
-| docker.sock | Только на хосте (orchestrator) |
+| Capability token | HMAC: space, draft_id, префиксы путей, ops, срок |
+| Отпечаток токена | sha256, первые 16 символов |
+| Broker UDS | Единственный путь из песочницы к данным |
+| Docker sandbox | `network none`, память, CPU, `pids_limit`, read-only rootfs, tmpfs, non-root, `cap_drop=ALL` |
+| API | Только `127.0.0.1`, без аутентификации, удаленный доступ через SSH tunnel |
 | Секреты | Только из env |
 
-## Ограничения и особенности реализации
+## Ограничения
 
-- Один основной space; полный lifecycle draft/published для нескольких окружений не реализован (interim: статус на changeset).
-- Записи broker и часть API могут идти в **разных** LMDB write txn; publish, idempotency outcome и audit HITL на API стараются объединять в одну write txn.
-- Плоские пакеты в `src/`, а не отдельные сервисы на каждый capability-модуль.
+- Одна нода и один писатель LMDB; конкурентность держится на CAS, а не на параллельной записи.
+- Размер карты задается при открытии через `DOCVAULT_MAP_SIZE`, на лету не растет.
+- Rebase создает новый черновик и помечает конфликтные пути; трехстороннего merge нет.
+- Идемпотентные ключи хранятся без TTL, журнал аудита только дописывается.
+- Списка отзыва токенов и привязки к run нет; токен ограничен space, draft_id, путями и сроком.
+- Полнотекстового поиска нет.
+- Draft в текущем коде это фиксированный шаблон; стадия с моделью подключается отдельно.

@@ -1,6 +1,7 @@
 from typing import Any
 
 from api.deps import get_repository
+from core.runs.store import RunStore
 
 
 def test_run_grounds_claim_bound_to_changed_fragment(api: Any) -> None:
@@ -82,3 +83,89 @@ def test_run_marks_unbound_claim_for_human(api: Any) -> None:
     )
     assert created.status_code == 200
     assert created.json()["status"] == "needs_human"
+
+
+def test_run_unknown_draft_returns_404(api: Any) -> None:
+    response = api.client.post(
+        "/runs",
+        json={"draft_id": "missing", "claims": []},
+    )
+    assert response.status_code == 404
+
+
+def test_run_closed_draft_returns_409(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/a.md", "text", "w-closed")
+    api.publish_ok(draft["id"], None, "p-closed")
+    response = api.client.post(
+        "/runs",
+        json={"draft_id": draft["id"], "claims": []},
+    )
+    assert response.status_code == 409
+
+
+def test_get_missing_run_returns_404(api: Any) -> None:
+    assert api.client.get("/runs/missing").status_code == 404
+
+
+def test_verdict_reject_does_not_need_expected_head(api: Any) -> None:
+    draft = api.draft()
+    created = api.client.post(
+        "/runs",
+        json={"draft_id": draft["id"], "claims": []},
+    )
+    assert created.status_code == 200
+    run_id = created.json()["id"]
+    response = api.client.post(
+        f"/runs/{run_id}/verdicts",
+        json={"verdict": "reject"},
+        headers={"Idempotency-Key": "reject-1"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "rejected"
+
+
+def test_verdict_accept_requires_expected_head(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/a.md", "text", "w-verdict")
+    created = api.client.post(
+        "/runs",
+        json={"draft_id": draft["id"], "claims": []},
+    )
+    run_id = created.json()["id"]
+    response = api.client.post(
+        f"/runs/{run_id}/verdicts",
+        json={"verdict": "accept"},
+        headers={"Idempotency-Key": "accept-nohead"},
+    )
+    assert response.status_code == 422
+
+
+def test_run_view_without_draft(api: Any) -> None:
+    repo = get_repository()
+    run_id = RunStore(repo.kv).create({"space": "default", "status": "grounded"})
+    view = api.client.get(f"/runs/{run_id}").json()
+    assert view["human_review_required"] is True
+    assert "documents" not in view
+
+
+def test_run_view_with_missing_draft(api: Any) -> None:
+    repo = get_repository()
+    run_id = RunStore(repo.kv).create(
+        {"space": "default", "status": "grounded", "draft_id": "missing"}
+    )
+    view = api.client.get(f"/runs/{run_id}").json()
+    assert view["human_review_required"] is True
+    assert "documents" not in view
+
+
+def test_run_view_truncates_large_document(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/big.md", "x" * 200_001, "w-big")
+    created = api.client.post(
+        "/runs",
+        json={"draft_id": draft["id"], "claims": []},
+    )
+    run_id = created.json()["id"]
+    view = api.client.get(f"/runs/{run_id}").json()
+    assert view["documents"]["docs/big.md"]["truncated"] is True

@@ -46,9 +46,7 @@ class Repository:
         result: dict[str, str] = {}
 
         def body(txn: Any) -> None:
-            result["blob_hash"] = self.write_draft_in_txn(
-                txn, draft_id, path, content, actor
-            )
+            result["blob_hash"] = self.write_draft_in_txn(txn, draft_id, path, content, actor)
 
         self.kv.run_write(body)
         return result["blob_hash"]

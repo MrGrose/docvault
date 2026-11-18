@@ -89,3 +89,37 @@ def test_write_doc_requires_idempotency_key(api: Any) -> None:
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "Idempotency-Key обязателен"
+
+
+def test_rebase_marks_conflicting_paths(api: Any) -> None:
+    first = api.draft()
+    api.write_ok(first["id"], "docs/a.md", "one", "w-c1")
+    head = api.publish_ok(first["id"], None, "p-c1")
+
+    mine = api.draft()
+    api.write_ok(mine["id"], "docs/a.md", "mine", "w-c2")
+    other = api.draft()
+    api.write_ok(other["id"], "docs/a.md", "other", "w-c3")
+    api.publish_ok(other["id"], head, "p-c3")
+
+    response = api.client.post(
+        f"/changesets/{mine['id']}/rebase",
+        headers={"Idempotency-Key": "r-conflict"},
+    )
+    assert response.status_code == 201
+    assert response.json()["draft"]["conflicts"] == ["docs/a.md"]
+
+
+def test_get_unknown_draft_returns_404(api: Any) -> None:
+    assert api.client.get("/changesets/missing").status_code == 404
+
+
+def test_rebase_closed_draft_returns_409(api: Any) -> None:
+    draft = api.draft()
+    api.write_ok(draft["id"], "docs/a.md", "v1", "w-closed-rebase")
+    api.publish_ok(draft["id"], None, "p-closed-rebase")
+    response = api.client.post(
+        f"/changesets/{draft['id']}/rebase",
+        headers={"Idempotency-Key": "r-closed"},
+    )
+    assert response.status_code == 409

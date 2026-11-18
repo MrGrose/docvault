@@ -124,3 +124,33 @@ def test_cli_diff_new_file_without_head(tmp_path: Path, capsys: pytest.CaptureFi
     capsys.readouterr()
     assert main(["--path", str(repo), "diff"]) == 0
     assert "+ docs/new.md" in capsys.readouterr().out
+
+
+def test_cli_explicit_draft_and_missing_draft(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    assert main(["--path", str(repo), "init"]) == 0
+    opened = Repository.open(repo)
+    draft = opened.drafts.create("default", "user:host", None)
+    opened.close()
+    src = _write_source(tmp_path, "explicit")
+    assert (
+        main(
+            [
+                "--path",
+                str(repo),
+                "write",
+                "docs/e.md",
+                str(src),
+                "--draft",
+                str(draft["id"]),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert main(["--path", str(repo), "commit", "-m", "explicit", "--draft", str(draft["id"])]) == 0
+    capsys.readouterr()
+    assert main(["--path", str(repo), "write", "docs/x.md", str(src), "--draft", "missing"]) == 1
+    assert "draft не найден" in capsys.readouterr().err
