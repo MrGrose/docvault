@@ -19,7 +19,7 @@ def test_quote_must_be_substring(repo: Repository) -> None:
         source_ref=f"blob:{blob_hash}",
     )
     result = check_evidence_integrity(claim, repo.blobs)
-    assert result.status == "ok"
+    assert result.status == "grounded"
 
 
 def test_fabricated_quote_blocked(repo: Repository) -> None:

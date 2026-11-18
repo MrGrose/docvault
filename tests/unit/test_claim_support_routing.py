@@ -36,4 +36,4 @@ def test_token_overlap_ok(repo: Repository) -> None:
         source_ref=f"blob:{blob_hash}",
     )
     res = validate_claim(claim, repo.blobs)
-    assert res.status == "ok"
+    assert res.status == "grounded"

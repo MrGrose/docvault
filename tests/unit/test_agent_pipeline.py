@@ -31,8 +31,8 @@ def test_validation_status_ok_for_grounded_claim(tmp_path: Path) -> None:
 
     claim = Claim(text="тариф 100 рублей", quote="100 рублей", source_ref=blob_hash)
     status, results = validation_status_for_claims([claim], blobs)
-    assert status == "ok"
-    assert results[0].status == "ok"
+    assert status == "grounded"
+    assert results[0].status == "grounded"
     kv.close()
 
 
