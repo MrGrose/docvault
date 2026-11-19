@@ -44,3 +44,12 @@ def test_rebuild_indexes_head_tree(tmp_path: Path) -> None:
     assert repo.rebuild_search() == 1
     assert repo.search.search("hello")
     repo.close()
+
+
+def test_search_ignores_punctuation_and_control_characters(tmp_path: Path) -> None:
+    repo = Repository.init(tmp_path / "repo")
+    blob = repo.blobs.put(b"hello")
+    repo.search.index_tree("default", {"docs/a.md": blob})
+    assert repo.search.search("!!!") == []
+    assert repo.search.search("\x00\x1f") == []
+    repo.close()

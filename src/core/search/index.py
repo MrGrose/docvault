@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -6,7 +7,7 @@ from core.storage.blob_store import BlobStore
 
 
 def _match_query(raw: str) -> str:
-    terms = [term for term in raw.replace('"', " ").split() if term]
+    terms = re.findall(r"\w+", raw[:200], flags=re.UNICODE)
     if not terms:
         return ""
     return " AND ".join(f'"{term}"*' for term in terms)
@@ -98,8 +99,11 @@ class SearchIndex:
             params.append(space)
         sql += " ORDER BY rank LIMIT ?"
         params.append(limit)
-        with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError:
+            return []
         return [{"space": row[0], "path": row[1], "snippet": row[2]} for row in rows]
 
     def clear(self) -> None:
