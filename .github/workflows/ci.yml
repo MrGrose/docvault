@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
-          enable-cache: true
+          enable-cache: false
           python-version: "3.13"
       - run: uv sync --group dev
       - name: Fuzz API
