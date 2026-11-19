@@ -283,6 +283,8 @@ def post_verdict(
         payload=payload,
         handler=handler,
     )
+    if result.get("changeset_id"):
+        repo.index_changeset(str(result["changeset_id"]))
     _runs().update(
         run_id,
         {

@@ -148,6 +148,8 @@ def publish(
         payload=payload,
         handler=handler,
     )
+    if "changeset_id" in result:
+        repo.index_changeset(str(result["changeset_id"]))
     response.status_code = status
     return result
 

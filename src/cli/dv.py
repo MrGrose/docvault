@@ -190,6 +190,27 @@ def cmd_checkout(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_search(args: argparse.Namespace) -> int:
+    repo = Repository.open(_repo_path(args.path))
+    try:
+        items = repo.search.search(args.query, space=args.space, limit=args.limit)
+    finally:
+        repo.close()
+    for item in items:
+        print(f"{item['space']} {item['path']}: {item['snippet']}")
+    return 0
+
+
+def cmd_search_rebuild(args: argparse.Namespace) -> int:
+    repo = Repository.open(_repo_path(args.path))
+    try:
+        count = repo.rebuild_search()
+    finally:
+        repo.close()
+    print(f"проиндексировано документов: {count}")
+    return 0
+
+
 def cmd_idem_purge(args: argparse.Namespace) -> int:
     repo = Repository.open(_repo_path(args.path))
     try:
@@ -227,6 +248,13 @@ def build_parser() -> argparse.ArgumentParser:
     checkout_p.add_argument("ref", nargs="?", default=None)
 
     sub.add_parser("idem-purge", help="удалить истекшие ключи идемпотентности")
+
+    search_p = sub.add_parser("search", help="поиск по опубликованным документам")
+    search_p.add_argument("query")
+    search_p.add_argument("--space", default=None)
+    search_p.add_argument("--limit", type=int, default=20)
+
+    sub.add_parser("search-rebuild", help="пересобрать поисковый индекс")
     return parser
 
 
@@ -240,6 +268,8 @@ def main(argv: list[str] | None = None) -> int:
         "diff": cmd_diff,
         "checkout": cmd_checkout,
         "idem-purge": cmd_idem_purge,
+        "search": cmd_search,
+        "search-rebuild": cmd_search_rebuild,
     }
     return handlers[args.command](args)
 

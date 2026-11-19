@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from core.keys import DEFAULT_OWNER, DEFAULT_SPACE, cs_key, head_key
 from core.kv import LmdbKv
+from core.search.index import SearchIndex
 from core.storage import BlobStore, ChangesetStore, DraftStore, PointerStore
 
 
@@ -15,6 +16,7 @@ class Repository:
         self.blobs = BlobStore(kv)
         self.drafts = DraftStore(kv)
         self.changesets = ChangesetStore(kv, self.pointers, self.blobs, self.drafts)
+        self.search = SearchIndex(root / "search.sqlite3", self.blobs)
 
     @classmethod
     def open(cls, repo_path: Path) -> "Repository":
@@ -74,7 +76,7 @@ class Repository:
         provenance: list[dict[str, Any]] | None = None,
         source: str = "api",
     ) -> str:
-        return self.changesets.publish_draft(
+        cs_id = self.changesets.publish_draft(
             draft_id,
             expected_head=expected_head,
             message=message,
@@ -84,6 +86,24 @@ class Repository:
             provenance=provenance,
             source=source,
         )
+        self.index_changeset(cs_id)
+        return cs_id
+
+    def index_changeset(self, cs_id: str) -> int:
+        cs = self.changesets.get(cs_id)
+        tree = self.blobs.read_tree(str(cs["tree_hash"]))
+        return self.search.index_tree(str(cs["space"]), tree)
+
+    def rebuild_search(self) -> int:
+        self.search.clear()
+        total = 0
+        for raw_key, _ in self.kv.scan(b"head:"):
+            space = raw_key.decode("utf-8").split(":", 1)[1]
+            head = self.pointers.head(space)
+            if head is None:
+                continue
+            total += self.index_changeset(head.decode())
+        return total
 
     def tree_at(self, ref: str | bytes) -> dict[str, str]:
         cs_id = ref.decode() if isinstance(ref, bytes) else ref

@@ -16,6 +16,7 @@
 - Provenance с хэшем цитаты и ссылкой на источник, audit на каждый publish в одной транзакции.
 - Capability broker по UDS, токен привязан к space, draft_id и run_id, отзыв по `jti`, запись агента в audit.
 - TTL идемпотентности, метрики `/metrics`, property-тесты Hypothesis, bench на 1000 публикаций.
+- Поиск по опубликованным документам на SQLite FTS5 с фильтром по space и командой переиндексации.
 - API может требовать bearer token, списки черновиков и прогонов, кандидаты claims из диффа.
 - Docker sandbox: без сети, лимиты памяти, CPU, pids, read-only rootfs, non-root.
 - UI на `/ui`: список черновиков, список прогонов, diff, цитаты, статусы и предупреждение о ручной проверке смысла.
@@ -70,7 +71,7 @@ make demo-hitol
 
 | Проверка | Результат |
 |----------|-----------|
-| `uv run pytest` | 184 теста проходят, 1 скипается (fault-тест требует Docker) |
+| `uv run pytest` | 189 тестов проходят, 1 скипается (fault-тест требует Docker) |
 | `uv run pytest --cov=src` | покрытие 91% по `src` |
 | `uv run ruff check .` и `uv run mypy src` | без замечаний, mypy в strict-режиме |
 | Локальность CDC | вставка одного байта в файл 96 КБ меняет 1 чанк из 27 |
@@ -152,7 +153,10 @@ curl -s -X POST "$BASE/runs/<run_id>/verdicts" \
 curl -s "$BASE/changesets?status=open&limit=20"
 curl -s "$BASE/runs?limit=20"
 
-# 9. Журнал: каждый publish, включая CLI и API
+# 9. Поиск по опубликованным документам
+curl -s "$BASE/search?q=тариф&space=default&limit=20"
+
+# 10. Журнал: каждый publish, включая CLI и API
 curl -s "$BASE/audit?limit=20"
 ```
 
@@ -177,7 +181,7 @@ curl -s "$BASE/audit?limit=20"
 - Bearer token API один на инстанс, без ролей и пользователей.
 - Идемпотентные ключи живут 7 дней по умолчанию, очистка вызывается методом `purge_expired`, фонового job нет.
 - API без аутентификации по умолчанию, только localhost. С `DOCVAULT_API_TOKEN` нужен bearer token. Для удаленного доступа SSH tunnel, не VPN и не публичный интерфейс.
-- Полнотекстового поиска нет.
+- Поиск есть только по опубликованным документам, без ACL: фильтр по space, не по пользователю. Индекс SQLite FTS5 пересобирается командой `search-rebuild`.
 
 ## Development
 
@@ -190,6 +194,8 @@ make bench         # бенчмарк CDC: три сценария правки
 make bench-writers # 1000 публикаций, 8 воркеров, конфликты и время
 uv run --with schemathesis schemathesis run http://127.0.0.1:8000/openapi.json --checks all --exclude-checks allow_header_conformance
 uv run python -m cli.dv --path ./data/repo idem-purge
+uv run python -m cli.dv --path ./data/repo search тариф
+uv run python -m cli.dv --path ./data/repo search-rebuild
 uv run pytest tests/bdd/ -q
 uv run pytest --cov=src --cov-report=term-missing tests/
 ```
