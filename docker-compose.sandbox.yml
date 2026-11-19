@@ -1,0 +1,42 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DOCVAULT_REPO: /app/data/repo
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  sandbox-demo:
+    profiles: ["sandbox"]
+    build: .
+    user: "0:0"
+    command: ["uv", "run", "python", "scripts/demo_agent_compose.py"]
+    environment:
+      DOCVAULT_REPO: /app/data/repo
+      DOCVAULT_BROKER_SOCKET: /run/broker.sock
+      DOCVAULT_WORK_DIR: /work
+      DOCVAULT_WORK_VOLUME: docvault-work
+      DOCVAULT_BROKER_VOLUME: docvault-broker
+      DOCVAULT_CAPABILITY_SECRET: dev-demo-secret
+      DOCVAULT_BROKER_SOCKET_MODE: "666"
+      DOCVAULT_SANDBOX_USER: "1000:0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+      - docvault-work:/work
+      - docvault-broker:/run
+
+volumes:
+  docvault-work:
+    name: docvault-work
+  docvault-broker:
+    name: docvault-broker

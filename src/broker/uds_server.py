@@ -49,7 +49,7 @@ class UdsBrokerServer:
             os.makedirs(parent, exist_ok=True)
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.bind(self._socket_path)
-        os.chmod(self._socket_path, 0o600)
+        os.chmod(self._socket_path, int(os.environ.get("DOCVAULT_BROKER_SOCKET_MODE", "600"), 8))
         sock.listen(8)
         sock.settimeout(0.5)
         self._sock = sock

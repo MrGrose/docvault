@@ -33,10 +33,13 @@ class DockerRuntime:
         env: Mapping[str, str],
         mounts: Mapping[str, str],
         workdir: str = "/work",
+        volume_mounts: Mapping[str, str] | None = None,
     ) -> RunResult:
         volumes: dict[str, dict[str, str]] = {}
         for host_path, container_path in mounts.items():
             volumes[host_path] = {"bind": container_path, "mode": "rw"}
+        for volume_name, container_path in (volume_mounts or {}).items():
+            volumes[volume_name] = {"bind": container_path, "mode": "rw"}
         environment = {"PYTHONDONTWRITEBYTECODE": "1", **env}
         container = self._client.containers.run(
             image,

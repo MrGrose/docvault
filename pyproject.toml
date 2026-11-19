@@ -9,11 +9,11 @@ dependencies = [
   "lmdb>=1.6",
   "uvicorn[standard]>=0.34",
   "sqlalchemy>=2",
+  "docker>=7.1",
 ]
 
 [dependency-groups]
 dev = [
-  "docker>=7.1",
   "httpx>=0.28",
   "hypothesis>=6.170.15",
   "mypy>=1.15",

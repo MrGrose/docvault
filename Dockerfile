@@ -9,6 +9,8 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:0.8.0 /uv /uvx /bin/
 COPY pyproject.toml README.md ./
 COPY src ./src
+COPY scripts ./scripts
+COPY docker ./docker
 RUN uv sync --no-dev
 RUN chown -R app:app /app
 USER app

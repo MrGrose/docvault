@@ -103,6 +103,7 @@ curl -s http://127.0.0.1:8000/health   # {"status":"ok"}
 - Данные лежат в `./data`, каталог переживает перезапуск.
 - UI: `http://127.0.0.1:8000/ui/`, OpenAPI: `http://127.0.0.1:8000/docs`.
 - Песочница и `make demo-agent` из контейнера не запускаются: нужен доступ к `docker.sock` и broker по UDS. Эти демо идут на хосте.
+- Для контейнерного варианта есть профиль `sandbox`: `docker compose -f docker-compose.sandbox.yml --profile sandbox run --rm --build sandbox-demo`. Он запускается только явно, монтирует `docker.sock` и работает от root, поэтому это отдельный контур, а не режим по умолчанию.
 
 ## API
 
